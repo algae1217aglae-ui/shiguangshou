@@ -106,6 +106,8 @@ export async function collectImageMemoryEntries({ historyPath, statePath, inboxD
 export function createImageMemoryClient(options = {}) {
   const enabled = options.enabled === true;
   const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 2500;
+  // 9/25：整批來源須逐圖驗 hash，不能用聊天的 2.5 秒把正常回填殺掉；仍保留有界終止。
+  const sourceSyncTimeoutMs = Number.isFinite(options.sourceSyncTimeoutMs) ? Math.max(1, Math.min(60000, options.sourceSyncTimeoutMs)) : 60000;
   const cooldownMs = Number.isFinite(options.cooldownMs) ? options.cooldownMs : 60000;
   const terminationWarningMs = Number.isFinite(options.terminationWarningMs) ? Math.max(1, options.terminationWarningMs) : 2000;
   const closeGraceMs = Number.isFinite(options.closeGraceMs) ? Math.max(1, options.closeGraceMs) : 2000;
@@ -406,7 +408,7 @@ export function createImageMemoryClient(options = {}) {
         const messages = snapshot.messages || [];
         const chunks = Math.max(Math.ceil(memberships.length / 32), Math.ceil(messages.length / 64), 1);
         for (let index = 0; index < chunks; index++) await send('source_sync_batch', { snapshotId, memberships: memberships.slice(index * 32, index * 32 + 32), messages: messages.slice(index * 64, index * 64 + 64) });
-        return await send('source_sync_commit', { snapshotId });
+        return await send('source_sync_commit', { snapshotId }, { timeout: sourceSyncTimeoutMs });
       } catch (error) {
         try { await send('source_sync_abort', { snapshotId }); } catch {}
         throw error;

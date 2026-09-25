@@ -105,10 +105,11 @@ test('worker keeps strict 0.88 unchanged and emits production-channel angle cand
   writeFileSync(policyPath, JSON.stringify({ version: 1, revision: 0, paths: {}, shas: {} }));
   await makeImage(join(inboxDir, 'old.png'));
   await makeImage(join(inboxDir, 'query.png'), 1);
+  let queryScore = 0.82;
   const vector = relativePath => {
     const value = new Float32Array(512);
-    value[0] = relativePath.endsWith('old.png') ? 1 : 0.8;
-    value[1] = relativePath.endsWith('old.png') ? 0 : 0.6;
+    value[0] = relativePath.endsWith('old.png') ? 1 : queryScore;
+    value[1] = relativePath.endsWith('old.png') ? 0 : Math.sqrt(1 - queryScore * queryScore);
     return value;
   };
   const worker = createImageMemoryWorker({
@@ -131,8 +132,8 @@ test('worker keeps strict 0.88 unchanged and emits production-channel angle cand
 
     const diagnostic = await worker.handle({ id: 'angle-raw', ...request, op: 'evaluate', topK: 10, applyThresholds: false, regionMode: 'combined', limits: { maxHits: 3, pHashMaxDistance: 0, visualMinScore: 0.88 } });
     const raw = diagnostic.candidates.find(row => row.occurrenceId === 'old');
-    assert.equal(Number(raw.wholeCosine.toFixed(6)), 0.8);
-    assert.equal(Number(raw.fixedCosine.toFixed(6)), 0.8);
+    assert.equal(Number(raw.wholeCosine.toFixed(6)), 0.82);
+    assert.equal(Number(raw.fixedCosine.toFixed(6)), 0.82);
 
     const on = await worker.handle({ id: 'angle-on', ...request, limits: { maxHits: 3, pHashMaxDistance: 0, visualMinScore: 0.88, angleFallbackEnabled: true } });
     assert.deepEqual(on.matches, []);
@@ -141,9 +142,14 @@ test('worker keeps strict 0.88 unchanged and emits production-channel angle cand
     assert.equal(on.unconfirmedCandidates[0].confidence, 'unconfirmed');
     assert.equal(on.unconfirmedCandidatePool.length, 1);
     assert.equal(on.unconfirmedCandidatePool[0].queryEvidence[0].queryRelativePath, 'inbox/query.png');
-    assert.equal(Number(on.unconfirmedCandidates[0].queryEvidence[0].whole.score.toFixed(6)), 0.8);
-    assert.equal(Number(on.unconfirmedCandidates[0].queryEvidence[0].fixed.score.toFixed(6)), 0.8);
+    assert.equal(Number(on.unconfirmedCandidates[0].queryEvidence[0].whole.score.toFixed(6)), 0.82);
+    assert.equal(Number(on.unconfirmedCandidates[0].queryEvidence[0].fixed.score.toFixed(6)), 0.82);
     assert.equal(on.unconfirmedCandidates[0].sources.length, 1);
+    queryScore = 0.79;
+    const below = await worker.handle({ id: 'angle-below-minimum', ...request, limits: { maxHits: 3, pHashMaxDistance: 0, visualMinScore: 0.88, angleFallbackEnabled: true } });
+    assert.deepEqual(below.matches, []);
+    assert.deepEqual(below.unconfirmedCandidates, []);
+    assert.equal(below.unconfirmedCandidatePool.length, 1, 'raw diagnostics remain available without becoming attachments');
   } finally { await worker.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 

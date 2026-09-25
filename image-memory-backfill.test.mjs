@@ -17,6 +17,28 @@ const realWorkerPath = fileURLToPath(new URL('./tools/image-memory/worker.mjs', 
 const sourceFeatureWorkerPath = fileURLToPath(new URL('./tools/image-memory/test-fixtures/source-feature-worker.mjs', import.meta.url));
 const embeddingFixturePath = fileURLToPath(new URL('./tools/image-memory/test-fixtures/embedding-worker.mjs', import.meta.url));
 
+test('repeated backfill failures back off, recover, and keep ordinary feature polling short', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'porch-image-backoff-'));
+  let broken = true;
+  let pending = false;
+  const runner = createImageMemoryBackfillRunner({
+    historyPath: join(dir, 'history'), cursorPath: join(dir, 'cursor.json'),
+    collect: async () => ({ sources: [], denied: [], issues: broken ? [{ code: 'IMAGE_WORKER_TIMEOUT' }] : [], cursor: { historyBytes: 0, latestSourceTs: 0 } }),
+    client: { backfill: async () => ({}), reconcile: async () => ({}), stats: async () => ({ pendingEmbedding: pending ? 1 : 0 }) },
+  });
+  try {
+    for (const delay of [60000, 120000, 240000, 480000, 960000, 1800000, 1800000]) assert.equal((await runner.run()).retryAfterMs, delay);
+    broken = false;
+    assert.equal((await runner.run()).cursorAdvanced, true);
+    pending = true;
+    assert.equal((await runner.run()).retryAfterMs, 60000);
+    assert.equal((await runner.run()).retryAfterMs, 60000);
+    broken = true;
+    assert.equal((await runner.run()).retryAfterMs, 60000);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
 test('background backfill starts full, advances a durable cursor, then scans only appended history', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'porch-image-backfill-cursor-'));
   const historyPath = join(dir, 'history.jsonl');

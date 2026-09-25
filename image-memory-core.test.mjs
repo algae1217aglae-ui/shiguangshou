@@ -196,7 +196,7 @@ test('angle fallback deduplicates SHA evidence, excludes strict-covered queries 
     angleCandidate('q1-a', 0.9, 0.9, { queryId: 'q1', sha256: 'shared', occurrenceId: 'later', sourceTs: 20 }),
     angleCandidate('q1-b', 0.9, 0.9, { queryId: 'q1', sha256: 'shared', occurrenceId: 'earlier', sourceTs: 10 }),
     angleCandidate('q2', 0.8, 0.8, { queryId: 'q2', sourceTs: 30 }),
-    angleCandidate('q3', 0.7, 0.7, { queryId: 'q3', sourceTs: 40 }),
+    angleCandidate('q3', 0.76, 0.8, { queryId: 'q3', sourceTs: 40 }),
   ];
   const strictMatches = [{ sha256: 'strict', queryIds: ['q1'] }];
   const ranked = rankUnconfirmedAngleCandidates(candidates, { beforeTs: 200, maxHits: 3, strictMatches });
@@ -207,13 +207,39 @@ test('angle fallback deduplicates SHA evidence, excludes strict-covered queries 
   assert.equal(ranked.length + strictMatches.length, 3);
 });
 
-test('angle fallback keeps low absolute scores unconfirmed instead of treating them as identity confirmation', () => {
+test('angle fallback rejects low scores even when both channels rank the photo first', () => {
+  for (const [whole, fixed] of [[0.12, 0.11], [0.79, 0.79], [0.749999, 0.99], [0.99, 0.799999]]) {
+    assert.deepEqual(rankUnconfirmedAngleCandidates([
+      angleCandidate('only', whole, fixed, { yoloCosine: 1 }),
+    ], { beforeTs: 200, maxHits: 1 }), [], `${whole}/${fixed}`);
+  }
+});
+
+test('angle fallback includes both minimum boundaries but keeps the result unconfirmed', () => {
   const ranked = rankUnconfirmedAngleCandidates([
-    angleCandidate('low', 0.12, 0.11),
+    angleCandidate('boundary', 0.75, 0.80),
   ], { beforeTs: 200, maxHits: 1 });
   assert.equal(ranked[0].confidence, 'unconfirmed');
   assert.equal(ranked[0].candidateType, 'unconfirmed_angle');
   assert.equal(Object.hasOwn(ranked[0], 'confirmed'), false);
+});
+
+test('angle fallback can select an eligible alternative without promoting outside the original top three', () => {
+  assert.equal(rankUnconfirmedAngleCandidates([
+    angleCandidate('weak-local', 0.9, 0.79),
+    angleCandidate('eligible', 0.8, 0.81),
+  ])[0].sha256, 'eligible');
+  assert.deepEqual(rankUnconfirmedAngleCandidates([
+    angleCandidate('a', 0.95, 0.79), angleCandidate('b', 0.94, 0.78),
+    angleCandidate('c', 0.93, 0.77), angleCandidate('outside', 0.8, 0.81),
+  ]), []);
+});
+
+test('angle fallback does not combine different queries to pass the two minimum scores', () => {
+  assert.deepEqual(rankUnconfirmedAngleCandidates([
+    angleCandidate('same', 0.9, 0.79, { queryId: 'q1' }),
+    angleCandidate('same', 0.74, 0.9, { queryId: 'q2' }),
+  ]), []);
 });
 
 test('rankImageMatches filters future and self matches, keeps historical same SHA, deduplicates, and preserves query ids', () => {

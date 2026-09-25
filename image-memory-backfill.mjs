@@ -50,6 +50,7 @@ export function createImageMemoryBackfillRunner({
   getFeatureFingerprint = () => 'image-memory-whole-v1',
 } = {}) {
   if (!getClient && (!client || typeof client.backfill !== 'function' || typeof client.reconcile !== 'function')) throw new TypeError('backfill client is required');
+  let consecutiveFailures = 0;
   return {
     async run() {
       const activeClient = getClient ? getClient() : client;
@@ -128,7 +129,10 @@ export function createImageMemoryBackfillRunner({
         };
         await writeCursor(cursorPath, next);
       }
-      return { ...counts, selected: sources.length, denied: collected.denied.length, issues: collected.issues, sourceSynced, full, cursorAdvanced, retryAfterMs: cursorAdvanced ? null : 60000 };
+      const failed = counts.failed > 0 || collected.issues.length > 0 || revokeFailed;
+      consecutiveFailures = failed ? Math.min(consecutiveFailures + 1, 6) : 0;
+      const retryAfterMs = cursorAdvanced ? null : failed ? Math.min(60000 * 2 ** (consecutiveFailures - 1), 30 * 60000) : 60000;
+      return { ...counts, selected: sources.length, denied: collected.denied.length, issues: collected.issues, sourceSynced, full, cursorAdvanced, retryAfterMs };
     },
   };
 }

@@ -14,6 +14,10 @@ rl.on('line', line => {
   if (path.includes('hang')) return;
   if (path.includes('crash')) return process.exit(7);
   if (path.includes('bad-json')) return process.stdout.write('{bad}\n');
+  if (request.op.startsWith('source_sync_')) {
+    if (request.op === 'source_sync_commit') return setTimeout(() => write({ id: request.id, ok: true, result: { generation: 1 } }), 800);
+    return write({ id: request.id, ok: true, result: {} });
+  }
   const reply = () => {
     if (request.op === 'stats') {
       const sendStats = () => write({ id: request.id, ok: true, result: { images: 1, occurrences: 2, pendingEmbedding: 0, ...(workerArgs['regions-enabled'] === '1' ? { pendingRegions: 2, regionArgs: { manifest: workerArgs['detector-manifest'], worker: workerArgs['detector-worker'] } } : {}) } });

@@ -49,6 +49,25 @@ function makeClient(overrides = {}) {
 
 const query = name => ({ queryId: name, occurrenceId: `o-${name}`, relativePath: `inbox/${name}.jpg` });
 
+test('source snapshot commit has a bounded maintenance budget independent of recall', async () => {
+  const ctx = makeClient();
+  try {
+    await ctx.client.stats();
+    assert.equal((await ctx.client.syncSourceSnapshot({ status: 'complete', sourceType: 'chat', revision: 'r1', memberships: [], messages: [] })).generation, 1);
+    const start = Date.now();
+    const recall = await ctx.client.recallBatch({ queries: [query('hang')], beforeTs: 10 });
+    assert.equal(recall.channels.hash, 'timeout');
+    assert.ok(ctx.issues.some(issue => issue.code === 'IMAGE_WORKER_TIMEOUT' && issue.stage === 'recall'));
+    assert.ok(Date.now() - start < 1500, 'recall must not inherit the maintenance timeout');
+  } finally { await ctx.cleanup(); }
+  const bounded = makeClient({ sourceSyncTimeoutMs: 100 });
+  try {
+    await bounded.client.stats();
+    await assert.rejects(bounded.client.syncSourceSnapshot({ status: 'complete', sourceType: 'chat', revision: 'r1' }), { code: 'IMAGE_WORKER_TIMEOUT' });
+  } finally { await bounded.cleanup(); }
+});
+
+
 test('disabled client returns safe values without spawning', async () => {
   const client = createImageMemoryClient({ enabled: false });
   assert.deepEqual(await client.recallBatch({ queries: [query('a')], beforeTs: 10, excludeOccurrenceIds: [] }), { matches: [], warnings: [], channels: { hash: 'unavailable', visual: 'unavailable' }, skippedQueryCount: 0 });

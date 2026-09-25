@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-import { formatImageRecallContext, rankUnconfirmedAngleCandidates, refreshImageMatchQueryEvidence, selectImageMemorySources } from './image-memory-core.mjs';
+import { angleCandidateMeetsMinimum, formatImageRecallContext, rankUnconfirmedAngleCandidates, refreshImageMatchQueryEvidence, selectImageMemorySources } from './image-memory-core.mjs';
 import { formatImageRecallData, selectChatContextWindow } from './image-memory-context.mjs';
 import { readAlbumImageSourceSnapshot, readChatHistoryContextEntries, readChatHistoryToken, readLifeImageSourceSnapshot, verifyChatHistoryLocator } from './image-memory-sources.mjs';
 import { normalizeImageMemoryPath, resolveImageMemoryImage } from './tools/image-memory/source-paths.mjs';
@@ -375,6 +375,7 @@ export async function revalidateImageRecallForBridge({
   };
 
   const refreshStructuredAngleCandidate = (candidate, queryEvidence) => {
+    queryEvidence = queryEvidence.filter(evidence => angleCandidateMeetsMinimum(evidence.whole?.score, evidence.fixed?.score));
     if (!queryEvidence.length) return null;
     const weakest = queryEvidence.map(evidence => Math.min(Number(evidence.whole?.score), Number(evidence.fixed?.score)));
     const means = queryEvidence.map(evidence => (Number(evidence.whole?.score) + Number(evidence.fixed?.score)) / 2);

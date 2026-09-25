@@ -3,6 +3,14 @@ import { createHash } from 'node:crypto';
 import { memoryEntryAllowsImages } from './memory-recall.mjs';
 
 const KIND_ORDER = new Map([['exact', 0], ['near_duplicate', 1], ['visual', 2]]);
+// Trial floor for unconfirmed candidates; independent of strict visual recall.
+const ANGLE_MIN_WHOLE_SCORE = 0.75;
+const ANGLE_MIN_FIXED_SCORE = 0.80;
+
+export function angleCandidateMeetsMinimum(wholeScore, fixedScore) {
+  return Number.isFinite(wholeScore) && Number.isFinite(fixedScore)
+    && wholeScore >= ANGLE_MIN_WHOLE_SCORE && fixedScore >= ANGLE_MIN_FIXED_SCORE;
+}
 
 function imageMemoryError(message, code = 'IMAGE_MEMORY_INVALID') {
   return Object.assign(new Error(message), { code });
@@ -374,7 +382,8 @@ export function rankUnconfirmedAngleCandidates(candidates, {
     const wholeRank = new Map(whole.slice(0, topKPerChannel).map((group, index) => [group.sha256, index + 1]));
     const fixedRank = new Map(fixed.slice(0, topKPerChannel).map((group, index) => [group.sha256, index + 1]));
     const yoloRank = new Map(groups.filter(group => group.yolo).sort((left, right) => Number(right.yolo.yoloCosine) - Number(left.yolo.yoloCosine)).map((group, index) => [group.sha256, index + 1]));
-    const intersection = groups.filter(group => wholeRank.has(group.sha256) && fixedRank.has(group.sha256)).map(group => {
+    const intersection = groups.filter(group => wholeRank.has(group.sha256) && fixedRank.has(group.sha256)
+      && angleCandidateMeetsMinimum(group.whole.wholeCosine, group.fixed.fixedCosine)).map(group => {
       const wr = wholeRank.get(group.sha256);
       const fr = fixedRank.get(group.sha256);
       const weakestViewScore = Math.min(Number(group.whole.wholeCosine), Number(group.fixed.fixedCosine));

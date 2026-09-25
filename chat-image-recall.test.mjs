@@ -182,6 +182,31 @@ test('shared bridge dispatch runs final revalidation before assembling capable c
   assert.match(dispatched.context, /old-1/);
 }));
 
+test('bridge minimum scores apply to raw and already-selected candidates, without text or attachment leaks', async () => withBridgePolicy(async ({ policyPath }) => {
+  const source = albumSource(1);
+  for (const structured of [false, true]) {
+    for (const [whole, fixed, count] of [[0.75, 0.8, 1], [0.79, 0.791, 0], [0.749, 0.95, 0]]) {
+      const evidence = { queryId: 'q', queryRelativePath: 'inbox/q.png', querySha256: 'b'.repeat(64),
+        ...(structured ? { whole: { score: whole, rank: 1 }, fixed: { score: fixed, rank: 1 } } : { wholeCosine: whole, fixedCosine: fixed }) };
+      const candidate = { occurrenceId: 'angle', relativePath: source.relativePath, sha256: 'a'.repeat(64), sourceTs: 2, sources: [source], queryIds: ['q'],
+        candidateType: 'unconfirmed_angle', confidence: 'unconfirmed', wholeCosine: whole, fixedCosine: fixed, queryEvidence: [evidence] };
+      const dispatched = await prepareImageRecallBridgeDispatch({
+        supportsImageAttachments: true, angleFallbackEnabled: true, maxHits: 1, photoPaths: ['C:/example/inbox/q.png'],
+        revalidation: { recallResult: { matches: [], [structured ? 'unconfirmedCandidates' : 'unconfirmedCandidatePool']: [candidate] },
+          beforeTs: 100, deadlineAt: Date.now() + 500, policyPath,
+          loadLiveViews: async () => liveViews([source]),
+          hashAsset: async path => path === 'inbox/q.png' ? 'b'.repeat(64) : 'a'.repeat(64),
+          resolveAssetPath: async path => `C:/example/${path}`,
+        },
+      });
+      assert.equal(dispatched.liveRecall.unconfirmedCandidates.length, count, `${structured}/${whole}/${fixed}`);
+      assert.equal(dispatched.images.length, 1 + count);
+      assert.equal(dispatched.context.includes('candidateType=unconfirmed_angle'), count === 1);
+      if (!count) assert.doesNotMatch(dispatched.context, /old-1/);
+    }
+  }
+}));
+
 test('candidate conversation uses the shared bounded data formatter and leaves evidence unconfirmed', () => {
   const candidate = {
     relativePath: 'inbox/old.png', sources: [],
@@ -351,8 +376,8 @@ test('bridge revalidates angle query and candidate originals and returns bounded
     occurrenceId: 'candidate', sourceTs: 2, sourceText: '', sources: [source], queryIds: ['q'],
     queryEvidence: [{
       queryId: 'q', queryRelativePath: 'inbox/query.png', querySha256: 'b'.repeat(64),
-      whole: { score: 0.74, rank: 1 }, fixed: { score: 0.79, rank: 2, queryRegionId: 'fq', queryRegionBbox: null, candidateRegionId: 'fc', candidateRegionBbox: null }, yoloDiagnostic: null,
-    }], ranking: { weakestViewScore: 0.74, meanViewScore: 0.765 },
+      whole: { score: 0.76, rank: 1 }, fixed: { score: 0.81, rank: 2, queryRegionId: 'fq', queryRegionBbox: null, candidateRegionId: 'fc', candidateRegionBbox: null }, yoloDiagnostic: null,
+    }], ranking: { weakestViewScore: 0.76, meanViewScore: 0.785 },
   };
   const result = await revalidateImageRecallForBridge({
     recallResult: { matches: [], unconfirmedCandidates: [candidate] }, angleFallbackEnabled: true,
@@ -719,8 +744,8 @@ test('bridge drops revoked angle evidence and does not revive it as an attachmen
   const result = await revalidateImageRecallForBridge({
     recallResult: { matches: [], unconfirmedCandidates: [{
       candidateType: 'unconfirmed_angle', confidence: 'unconfirmed', relativePath: 'gallery/a.png', sha256: 'a'.repeat(64), occurrenceId: 'candidate', sourceTs: 2, sources: [source], queryIds: ['q'],
-      queryEvidence: [{ queryId: 'q', queryRelativePath: 'inbox/query.png', querySha256: 'b'.repeat(64), whole: { score: 0.7, rank: 1 }, fixed: { score: 0.7, rank: 1 }, yoloDiagnostic: null }],
-      ranking: { weakestViewScore: 0.7, meanViewScore: 0.7 },
+      queryEvidence: [{ queryId: 'q', queryRelativePath: 'inbox/query.png', querySha256: 'b'.repeat(64), whole: { score: 0.8, rank: 1 }, fixed: { score: 0.8, rank: 1 }, yoloDiagnostic: null }],
+      ranking: { weakestViewScore: 0.8, meanViewScore: 0.8 },
     }] }, angleFallbackEnabled: true,
     beforeTs: 100, deadlineAt: Date.now() + 500, policyPath,
     loadLiveViews: async () => liveViews([source]),

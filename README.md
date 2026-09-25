@@ -93,10 +93,13 @@ try {
 - `client.revoke(paths)` 處理撤回；`client.reconcile()` 清除失效路徑。撤回政策缺失、損壞或暫停時停止召回。別直接編輯 SQLite 去繞過政策。
 - `indexBatch`／`backfill` 回 `indexed`、`unchanged`、`failed`、`pendingEmbedding`，開啟區域時也有 `pendingRegions`。pending 需要背景重試，不能當成模型已索引完成。
 - `recallBatch` 回 `matches`、`warnings` 和通道狀態；預設最多 3 張歷史圖、8 張查詢圖、2500ms 共用時限。模型失敗時仍可走 hash；它不保證每次找到候選。
+- `syncSourceSnapshot` 的整批提交使用獨立背景期限 `sourceSyncTimeoutMs`，預設及最大 60000ms，可設更短的正數毫秒；不會延長聊天召回的 `timeoutMs`。背景提交仍共用 worker，繁忙時查詢可能逾時降級。
 
 ### 來源與照片附近聊天
 
 `image-memory-sources.mjs` 提供 chat／life／album 來源快照；`image-memory-backfill.mjs` 提供增量回填。現成轉接格式如下，若你的應用格式不同，先明確轉換，不能假設未讀到就是沒有收藏：
+
+使用 `createImageMemoryBackfillRunner` 時，呼叫端需依 `run()` 回傳的 `retryAfterMs` 安排下一次執行。連續回傳失敗時為 1、2、4、8、16、30 分鐘，最多 30 分鐘；恢復後重設。只有特徵尚待完成時仍為 1 分鐘，完成則回 null。拋出的例外仍需呼叫端捕捉並有界退避；套件不自動啟動排程或合併宿主日誌。
 
 ```text
 state.json             {"log":[{"messageId":"m1","conversationId":"c1","role":"user","ts":"ISO時間","text":"...","images":["inbox/a.jpg"]}]}
@@ -114,6 +117,8 @@ albums.json            {"albums":[{"id":"album-1","name":"Saved","items":[{"id":
 ### 不同角度候補
 
 嚴格門檻預設仍是 0.88。`angleFallbackEnabled:true` 可啟用 whole/fixed 前列交集的「未確認候補」，預設關閉，不自動升格為同物件或寫入長期記憶。與嚴格結果共用圖數及時間限制。
+
+0.2.1 起，候補須在同一 query 下同時符合整圖相似度至少 **0.75**、fixed 區域相似度至少 **0.80**，並仍在兩路原始前三名交集中。worker 挑選與送圖前重驗都套用此限制；高 YOLO 分數不能單獨放行，raw 診斷分數仍可保留。這是尚未經跨物件評估集校準的試用底線，可能同時減少誤召回與正確候補；相似度不是身份確認機率。
 
 候補計算與送圖使用明確能力 `supportsImageAttachments:true`，不判斷模型或產品名稱。`prepareImageRecallBatch`／`handleImageMemoryChatRoute` 與 `prepareImageRecallBridgeDispatch` 皆須傳入此能力及 `angleFallbackEnabled:true`；能力省略或為 false 時，停用候補計算／注入。CLI 直接本機輸出不受橋接名稱限制。套件不呼叫聊天模型 API，也不保證下游模型完成視覺核對。
 
