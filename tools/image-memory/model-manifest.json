@@ -1,0 +1,8 @@
+{
+  "modelId": "Xenova/clip-vit-base-patch32",
+  "revision": "d15189d7028b43f1d3e65039190477f6af591c2a",
+  "dtype": "fp32",
+  "libraryVersion": "4.3.0",
+  "preprocessVersion": "clip-center224-v1",
+  "embeddingVersion": "clip-cada01e72f732ce8f532a8af"
+}

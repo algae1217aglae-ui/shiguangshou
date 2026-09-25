@@ -1,0 +1,175 @@
+# 拾光獸
+
+**Shiguangshou** · 替自己的應用找回照片，以及照片旁的那段對話。
+
+本機圖片召回與可選的 90 天聊天照片清理。給聊天應用接入的 Node.js 原始碼套件，不是完整聊天網站。
+
+同圖用 SHA-256，比較接近的版本用 pHash；可選 CLIP 整圖／固定裁切，以及 YOLO 偵測區域搭配 CLIP。SQLite 儲存特徵與來源，原圖保留在接入者指定的資料夾。模型分數只是相似度，**不能證明兩張照片是同一物件**。
+
+## 快速開始
+
+需要 Node.js 24 以上。這個版本在 Windows、Node.js 24 驗證；其他系統尚未完成整套實測。YOLO 準備腳本目前固定 Windows x64／Python 3.12 的套件版本與雜湊。
+
+```sh
+npm ci
+npm test
+npm run demo
+npm run demo:cleanup
+```
+
+`npm ci` 會下載鎖定的 Node 依賴及其原生執行元件，但不下載 CLIP 或 YOLO 權重。
+
+兩個 demo 都只在系統暫存目錄建立合成圖片與假聊天資料，完成後移除整個範例目錄。一般 demo 只預覽清理；`demo:cleanup` 實際刪除一張範例過期聊天圖，保留一張範例收藏圖，並同步 SQLite。兩者均不啟動 HTTP 服務、不使用帳號、不讀取你的既有照片。
+
+一般 demo 的結果：
+
+```json
+{"recalledKind":"exact","candidateCount":1,"deletedCount":0,"pendingRepairCount":0,"oldChatPhotoExists":true,"savedPhotoExists":true}
+```
+
+## 接入自己的應用
+
+### 直接使用命令列
+
+不接聊天應用也能使用。先建立一個全新的資料夾，將自己的照片放進 `inbox`，並按下方來源格式填入聊天／相簿／手帳資料。`init` 會建立空白來源檔，拒絕覆蓋既有資料夾。
+
+```sh
+node cli.mjs init --root ./my-photos
+# 加入自己的圖片和來源資料後：
+node cli.mjs index --root ./my-photos
+node cli.mjs query --root ./my-photos --image inbox/query.jpg
+node cli.mjs preview --root ./my-photos
+```
+
+查詢輸出 JSON，包括匹配、來源、附近對話、原圖路徑與警告，已經過末端檔案和政策重驗。`query.jpg` 也必須放在允許根內；不想它成為歷史候選，就不要把它加入來源資料。`--before 2026-01-01T12:00:00Z` 可限定歷史截止時間。
+
+模型準備完成後，`index` 和 `query` 都加 `--clip` 使用整圖與固定裁切，加 `--yolo` 使用 YOLO 區域；查詢另加 `--candidates` 可輸出未確認的不同角度候補。它只在本機回傳結果，不傳照片給聊天模型。索引結果若有 pending，需再執行 index 重試；query 仍受 2500ms 時限約束，冷啟動可能降級。
+
+清理只在明確執行下列命令時發生，沒有背景自動開關：
+
+```sh
+node cli.mjs cleanup --root ./my-photos --execute
+node cli.mjs repair --root ./my-photos
+node cli.mjs revoke --root ./my-photos --image inbox/photo.jpg
+```
+
+先看 preview，再決定是否 execute。`repair` 修復刪圖後未完成的索引同步；`revoke` 撤回圖片召回資格，不刪原圖。CLI 的索引與清理共用跨程序鎖；手動編輯來源或由其他應用寫入時，請先停清理，或依下文使用同一把鎖。
+
+### 使用 JavaScript API
+
+完整可執行例子見 [`examples/local-demo.mjs`](examples/local-demo.mjs)。它展示政策初始化、真 worker、索引、查詢、清理與關閉。根目錄各 `.mjs` 可直接 import，不必啟動原應用。
+
+```js
+import { createImageMemoryClient } from './image-memory.mjs';
+import { initializeImageMemoryPolicyAsync } from './image-memory-policy.mjs';
+
+await initializeImageMemoryPolicyAsync(policyPath); // 新資料庫顯式初始化；不可刪掉舊政策重建來解除撤回
+const client = createImageMemoryClient({
+  enabled: true,
+  workerPath, // 本套件 tools/image-memory/worker.mjs 的絕對路徑
+  cwd: packageRoot,
+  inboxDir, dbPath, policyPath, // 接入者自己的絕對路徑
+});
+try {
+  await client.indexBatch([{
+    occurrenceId: 'message-1:image-0', relativePath: 'inbox/photo.jpg',
+    sourceTs: Date.parse('2026-01-01T12:00:00Z'), sourceText: 'A saved photo',
+  }]);
+  const result = await client.recallBatch({
+    queries: [{ queryId: 'query-1', occurrenceId: 'message-2:image-0', relativePath: 'inbox/query.jpg' }],
+    beforeTs: Date.now(), excludeOccurrenceIds: ['message-2:image-0'],
+  });
+  // 先檢查 channels/warnings；使用前重驗來源、政策和檔案，不能把舊結果當永久附件。
+} finally { await client.close(); }
+```
+
+- `inboxDir` 必填；`lifePhotosDir`、`galleryDir` 為另外兩個可選圖片根。相對路徑固定 `inbox/檔名`、`life-photos/檔名`、`gallery/檔名`，不接受任意檔案路徑。檔案上限 20 MiB、40M pixels，支援 JPEG/PNG/WebP/GIF；動畫只處理首格。
+- `sourceTs` 是毫秒時間戳，`occurrenceId` 必須由你的應用提供穩定的每次分享識別碼。同 SHA 可以合併圖片，但不合併不同分享的身份與對話。
+- `client.revoke(paths)` 處理撤回；`client.reconcile()` 清除失效路徑。撤回政策缺失、損壞或暫停時停止召回。別直接編輯 SQLite 去繞過政策。
+- `indexBatch`／`backfill` 回 `indexed`、`unchanged`、`failed`、`pendingEmbedding`，開啟區域時也有 `pendingRegions`。pending 需要背景重試，不能當成模型已索引完成。
+- `recallBatch` 回 `matches`、`warnings` 和通道狀態；預設最多 3 張歷史圖、8 張查詢圖、2500ms 共用時限。模型失敗時仍可走 hash；它不保證每次找到候選。
+
+### 來源與照片附近聊天
+
+`image-memory-sources.mjs` 提供 chat／life／album 來源快照；`image-memory-backfill.mjs` 提供增量回填。現成轉接格式如下，若你的應用格式不同，先明確轉換，不能假設未讀到就是沒有收藏：
+
+```text
+state.json             {"log":[{"messageId":"m1","conversationId":"c1","role":"user","ts":"ISO時間","text":"...","images":["inbox/a.jpg"]}]}
+chat-history.jsonl     每行一則上述訊息，以換行結束
+life.json              [{"id":"entry-1","kind":"photo","photo":"inbox/a.jpg","ts":"ISO時間","text":"..."}]
+albums.json            {"albums":[{"id":"album-1","name":"Saved","items":[{"id":"item-1","src":"inbox/a.jpg","addedAt":"ISO時間"}]}]}
+```
+
+`memorySafe:false`、hidden/private 等排除設定依來源處理。內建少量中文私密提示詞只是額外防線，不是能理解所有語言的隱私分類器；接入者應明確提供 `memorySafe:false`。
+
+照片附近對話最多前 2 則、後 3 則，限同一段對話、10 分鐘內且早於查詢；遇隱私或段落邊界不跨過去補滿。文字標為舊資料，不能當指令執行。
+
+`image-memory-chat.mjs` 的 `revalidateImageRecallForBridge`／`prepareImageRecallBridgeDispatch` 可在送出前重驗 query、live source、policy、path/SHA，並組裝文字和原圖路徑。詳見 `chat-image-recall.test.mjs` 的完整呼叫。你仍需在自己真正送圖的位置接入此步驟。
+
+### 不同角度候補
+
+嚴格門檻預設仍是 0.88。`angleFallbackEnabled:true` 可啟用 whole/fixed 前列交集的「未確認候補」，預設關閉，不自動升格為同物件或寫入長期記憶。與嚴格結果共用圖數及時間限制。
+
+現成附件組裝轉接只為 `bridgeKind:'codex'` 開候補；Claude／GLM 路徑會停用候補注入。這是來源應用的現有邊界，不代表所有模型都已整合。套件不呼叫任何聊天模型 API，也不保證主模型真的完成視覺核對。
+
+## 可選本機模型
+
+### CLIP
+
+以下是**明確下載模型**的步驟，會連 Hugging Face：
+
+```sh
+node tools/image-memory/prepare-model.mjs --manifest tools/image-memory/model-manifest.json --cache tools/image-memory/model-cache
+```
+
+清單固定 Xenova/clip-vit-base-patch32 的 revision、fp32 及特徵版本。正常推論只使用本機檔案。建立 client 時另傳絕對路徑 `manifestPath`、`cacheDir`、`embeddingWorkerPath`（tools/image-memory/embedding-worker.mjs）。加上 `regionsEnabled:true` 可使用固定裁切；沒有 YOLO 也能跑。
+
+### YOLO
+
+需要你自己已安裝的 Python 3.12。先看下載計畫，再執行：
+
+```sh
+node tools/image-region/prepare-detector.mjs --python "你的Python3.12執行檔" --dry-run
+node tools/image-region/prepare-detector.mjs --python "你的Python3.12執行檔"
+```
+
+只在 tools/image-region/runtime 建立獨立環境；下載套件和權重、核對固定版本／SHA、保存上游授權，正常 detector 推論停用網路。runtime、權重及套件環境不隨這份原始碼發布。準備完成後，client 再傳 `regionsEnabled:true`、`detectorManifestPath`、`detectorWorkerPath` 的絕對路徑。現有準備器不宣稱支援非 Windows 環境。
+
+YOLO 框只是輔助裁切，不能直接認定同物件；預訓練類別也不包含所有日常物品。背景 detector 和即時查詢有不同時限，逾時可退回固定裁切／整圖／hash。
+
+## 可選 90 天清理
+
+**預設關閉，核心不自行啟動排程。** 請先接好收藏資料與寫入鎖，再考慮執行。
+
+```js
+import { previewImageRetention } from './image-retention.mjs';
+import { executeImageRetention } from './image-retention-executor.mjs';
+
+const preview = await previewImageRetention({ root: yourDataRoot, days: 90 });
+// 用預覽結果確認範圍後，才由你的應用明確啟用：
+const result = await executeImageRetention({
+  root: yourDataRoot, enabled: true, days: 90,
+  reconcile: () => client.reconcile(),
+});
+```
+
+`yourDataRoot` 要有上述四份來源檔案和 inbox。只刪聊天明確分享、最後可信分享超過 90 天的 inbox 直屬圖；不掃孤兒檔、不刪聊天文字、不處理 gallery/life-photos。相簿、手帳 `photo`、旅遊 `travel.stops[].photo`／`travel.group.photo` 保護原圖及同 SHA 別名，hidden/private 收藏也保護。作品 HTML 不在永久保護來源內。
+
+必要來源缺失、格式錯誤、時間不可信、檔案被替換等情況保守停止或略過。刪檔成功而索引同步失敗時保留匿名 pending，必須持續用 `repairPendingImageRetention` 修復；`pendingRepairCount>0` 不是完整成功。
+
+**並行寫入必須接鎖**：所有聊天重分享、相簿／手帳收藏寫入與索引修改，用 `image-retention-fence.mjs` 的 `withImageRetentionClaims`；`relativePaths` 傳涉及的相對路徑，索引修改使用 `['__index__']`，持有至檔案複製和最新 metadata 保存完成。不要把鎖持有到聊天模型整輪結束。外部程式若繞過這些鎖，套件不能保證清理與收藏的並行安全。
+
+有需要可自行接 `createImageRetentionScheduler`（至少6小時）及 `createImageRetentionRepairScheduler`。可選 HTTP handler 僅接受持 token 的本機 JSON 請求，檢查 Host/Origin/反代標頭；套件本身不開埠。不能直接當對公網服務使用。
+
+## 驗證與限制
+
+- `npm test` 使用合成資料，涵蓋 worker、SQLite、撤回、來源、區域協定、附件重驗、清理與HTTP驗證，不會下載模型。
+- 真 CLIP、YOLO 及 Python 座標測試需要事先準備模型／Python，預設會明示 skip；skip 不代表驗過。可設 `IMAGE_MEMORY_MODEL_TEST=1`、`IMAGE_REGION_MODEL_TEST=1`、`IMAGE_REGION_PYTHON=你的Python` 執行對應測試。請先看各 integration.test.mjs 的額外條件。
+- 本版沒有公開的跨物件標記評估集，也沒有聲稱不同角度的識別准确率。閾值未為你的照片集合校準。
+- 特徵、來源文字與政策也是私人資料，需由接入應用限制存取。本套件沒有多租戶權限系統、資料加密或備份銷毀保證。原圖清理不會刪除你另存的備份。
+
+## 授權
+
+本專案以 **AGPL-3.0-only** 發布，見 [LICENSE](LICENSE)。分享修改版或提供修改版的網路互動服務時，需依條款向相應接收者／使用者提供對應原始碼；允許商用。接入者需評估自己結合的應用所受授權義務，不能假設只有這個小模組要公開。
+
+第三方程式、原生執行元件及模型各保留原授權，見 [THIRD_PARTY.md](THIRD_PARTY.md)。AGPL 不要求發布使用者照片、聊天紀錄或金鑰。不要把執行期資料放入公開儲存庫。

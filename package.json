@@ -1,0 +1,43 @@
+{
+  "name": "shiguangshou",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test *.test.mjs tools/image-memory/*.test.mjs tools/image-region/*.test.mjs",
+    "demo": "node examples/local-demo.mjs",
+    "demo:cleanup": "node examples/local-demo.mjs --cleanup"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.0",
+    "sharp": "0.35.4"
+  },
+  "allowScripts": {
+    "onnxruntime-node@1.30.0": true,
+    "protobufjs@7.6.6": true
+  },
+  "description": "拾光獸：本機圖片召回、來源對話與可選照片清理",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "*.mjs",
+    "examples/*.mjs",
+    "tools/image-memory/*.mjs",
+    "tools/image-memory/model-manifest.json",
+    "tools/image-memory/test-fixtures/*.mjs",
+    "tools/image-region/*.mjs",
+    "tools/image-region/*.py",
+    "tools/image-region/requirements.direct.txt",
+    "tools/image-region/THIRD_PARTY.md",
+    "tools/image-region/test-fixtures/*.py",
+    "test-fixtures/*.mjs",
+    "LICENSE",
+    "README.md",
+    "THIRD_PARTY.md"
+  ],
+  "bin": {
+    "shiguangshou": "./cli.mjs"
+  }
+}
