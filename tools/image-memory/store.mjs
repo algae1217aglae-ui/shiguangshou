@@ -372,13 +372,13 @@ export function replaceSourceSnapshot(db, { sourceType, baseGeneration = 0, base
       const contextSafe = memoryEntryAllowsContext(row);
       const text = contextSafe ? [...String(row.text || '')].slice(0, 240).join('') : '';
       upsertMessage.run(
-        row.messageId, row.conversationId, row.orderKey, row.sourceTs, row.author, text,
+        row.messageId, row.conversationId, row.orderKey, row.sourceTs, row.author === 'assistant' ? 'resident' : row.author, text,
         contextSafe ? 0 : 1, contextSafe ? 1 : 0, row.sourceRevision || revision, json(row.locator),
       );
     }
     const upsertMembership = db.prepare(`INSERT INTO source_memberships(membership_id,source_type,source_id,image_id,relative_path,source_ts,source_text,author,conversation_id,source_revision,locator_json,metadata_json,updated_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(membership_id) DO UPDATE SET source_type=excluded.source_type,source_id=excluded.source_id,image_id=excluded.image_id,relative_path=excluded.relative_path,source_ts=excluded.source_ts,source_text=excluded.source_text,author=excluded.author,conversation_id=excluded.conversation_id,source_revision=excluded.source_revision,locator_json=excluded.locator_json,metadata_json=excluded.metadata_json,updated_at=excluded.updated_at`);
-    for (const row of memberships) upsertMembership.run(row.membershipId, sourceType, row.sourceId, row.imageId, row.relativePath, row.sourceTs, [...String(row.sourceText || '')].slice(0, 160).join(''), row.author ?? null, row.conversationId ?? null, row.sourceRevision || revision, json(row.locator), json(row.metadata || {}), Date.now());
+    for (const row of memberships) upsertMembership.run(row.membershipId, sourceType, row.sourceId, row.imageId, row.relativePath, row.sourceTs, [...String(row.sourceText || '')].slice(0, 160).join(''), row.author === 'assistant' ? 'resident' : row.author ?? null, row.conversationId ?? null, row.sourceRevision || revision, json(row.locator), json(row.metadata || {}), Date.now());
     if (complete) {
       if (memberships.length) db.prepare(`DELETE FROM source_memberships WHERE source_type=? AND membership_id NOT IN (${memberships.map(() => '?').join(',')})`).run(sourceType, ...memberships.map(row => row.membershipId));
       else db.prepare('DELETE FROM source_memberships WHERE source_type=?').run(sourceType);
@@ -402,7 +402,7 @@ export function replaceSourceSnapshot(db, { sourceType, baseGeneration = 0, base
 export function listImageSources(db, imageId) {
   return db.prepare(`SELECT * FROM source_memberships WHERE image_id=? ORDER BY source_type,source_ts,membership_id`).all(imageId).map(row => ({
     membershipId: row.membership_id, sourceType: row.source_type, sourceId: row.source_id, imageId: Number(row.image_id), relativePath: row.relative_path,
-    sourceTs: Number(row.source_ts), sourceText: row.source_text, author: row.author, conversationId: row.conversation_id,
+    sourceTs: Number(row.source_ts), sourceText: row.source_text, author: row.author === 'resident' ? 'assistant' : row.author, conversationId: row.conversation_id,
     sourceRevision: row.source_revision, locator: parseJson(row.locator_json, null), metadata: parseJson(row.metadata_json, {}),
   }));
 }
@@ -410,7 +410,7 @@ export function listImageSources(db, imageId) {
 function chatMessage(row) {
   return row ? {
     messageId: row.message_id, conversationId: row.conversation_id, orderKey: row.order_key,
-    sourceTs: Number(row.source_ts), author: row.author, text: row.text, hidden: !!row.hidden,
+    sourceTs: Number(row.source_ts), author: row.author === 'resident' ? 'assistant' : row.author, text: row.text, hidden: !!row.hidden,
     memorySafe: !!row.memory_safe, sourceRevision: row.source_revision, locator: parseJson(row.locator_json, null),
   } : null;
 }

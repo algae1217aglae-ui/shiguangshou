@@ -16,10 +16,15 @@ __pycache__/
 *.tgz
 *.zip
 *.jsonl
-*.json
-!package.json
-!package-lock.json
-!tools/image-memory/model-manifest.json
+# Runtime source files only; development manifests and JSON fixtures remain visible.
+state.json
+life.json
+albums.json
+policy.json
+policy.json.*
+cursor.json
+config.local.json
+my-photos/
 *.png
 *.jpg
 *.jpeg

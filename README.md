@@ -1,5 +1,7 @@
 # 拾光獸
 
+[![Tests](https://github.com/algae1217aglae-ui/shiguangshou/actions/workflows/test.yml/badge.svg)](https://github.com/algae1217aglae-ui/shiguangshou/actions/workflows/test.yml)
+
 **Shiguangshou** · 替自己的應用找回照片，以及照片旁的那段對話。
 
 本機圖片召回與可選的 90 天聊天照片清理。給聊天應用接入的 Node.js 原始碼套件，不是完整聊天網站。
@@ -8,13 +10,14 @@
 
 ## 快速開始
 
-需要 Node.js 24 以上。這個版本在 Windows、Node.js 24 驗證；其他系統尚未完成整套實測。YOLO 準備腳本目前固定 Windows x64／Python 3.12 的套件版本與雜湊。
+需要 Node.js 24 以上。GitHub Actions 在 Windows／Linux、Node.js 24 執行不含模型的測試與接入範例，結果可點上方徽章查看。模型流程另行驗證，不能由 CI 綠燈推論為跨平台模型通過。YOLO 準備腳本目前固定 Windows x64／Python 3.12 的套件版本與雜湊。
 
 ```sh
 npm ci
 npm test
 npm run demo
 npm run demo:cleanup
+npm run example:chat
 ```
 
 `npm ci` 會下載鎖定的 Node 依賴及其原生執行元件，但不下載 CLIP 或 YOLO 權重。
@@ -57,7 +60,9 @@ node cli.mjs revoke --root ./my-photos --image inbox/photo.jpg
 
 ### 使用 JavaScript API
 
-完整可執行例子見 [`examples/local-demo.mjs`](examples/local-demo.mjs)。它展示政策初始化、真 worker、索引、查詢、清理與關閉。根目錄各 `.mjs` 可直接 import，不必啟動原應用。
+最小聊天接入見 [`examples/chat-integration.mjs`](examples/chat-integration.mjs)：一般 `user`／`assistant` 訊息、明確 `memorySafe`、真 worker／SQLite，再將重驗後的圖片和對話交給呼叫端。它使用合成圖片，不呼叫外部模型 API。
+
+包含清理的完整可執行例子見 [`examples/local-demo.mjs`](examples/local-demo.mjs)。它展示政策初始化、真 worker、索引、查詢、清理與關閉。根目錄各 `.mjs` 可直接 import，不必啟動原應用。
 
 ```js
 import { createImageMemoryClient } from './image-memory.mjs';
@@ -97,7 +102,7 @@ try {
 state.json             {"log":[{"messageId":"m1","conversationId":"c1","role":"user","ts":"ISO時間","text":"...","images":["inbox/a.jpg"]}]}
 chat-history.jsonl     每行一則上述訊息，以換行結束
 life.json              [{"id":"entry-1","kind":"photo","photo":"inbox/a.jpg","ts":"ISO時間","text":"..."}]
-albums.json            {"albums":[{"id":"album-1","name":"Saved","items":[{"id":"item-1","src":"inbox/a.jpg","addedAt":"ISO時間"}]}]}
+albums.json            {"albums":[{"id":"album-1","name":"Saved","items":[{"id":"item-1","src":"inbox/a.jpg","at":"ISO時間"}]}]}
 ```
 
 `memorySafe:false`、hidden/private 等排除設定依來源處理。內建少量中文私密提示詞只是額外防線，不是能理解所有語言的隱私分類器；接入者應明確提供 `memorySafe:false`。
@@ -110,7 +115,15 @@ albums.json            {"albums":[{"id":"album-1","name":"Saved","items":[{"id":
 
 嚴格門檻預設仍是 0.88。`angleFallbackEnabled:true` 可啟用 whole/fixed 前列交集的「未確認候補」，預設關閉，不自動升格為同物件或寫入長期記憶。與嚴格結果共用圖數及時間限制。
 
-現成附件組裝轉接只為 `bridgeKind:'codex'` 開候補；Claude／GLM 路徑會停用候補注入。這是來源應用的現有邊界，不代表所有模型都已整合。套件不呼叫任何聊天模型 API，也不保證主模型真的完成視覺核對。
+候補計算與送圖使用明確能力 `supportsImageAttachments:true`，不判斷模型或產品名稱。`prepareImageRecallBatch`／`handleImageMemoryChatRoute` 與 `prepareImageRecallBridgeDispatch` 皆須傳入此能力及 `angleFallbackEnabled:true`；能力省略或為 false 時，停用候補計算／注入。CLI 直接本機輸出不受橋接名稱限制。套件不呼叫聊天模型 API，也不保證下游模型完成視覺核對。
+
+### 從 0.1 升級
+
+核心訊息採 `role: 'user' | 'assistant'`，保留 `ts`、`messageId`、`conversationId`、`text`、`images`、隱私欄位；文字不再解讀宿主特殊標籤。手帳來源的助理作者用 `author:'assistant'`。舊宿主格式可在寫入來源前使用可選的 [`adapters/legacy-chat.mjs`](adapters/legacy-chat.mjs)，核心不載入它。不要過濾掉轉接後的 hidden／memorySafe:false 邊界訊息。
+
+原 `bridgeKind` 改傳 `supportsImageAttachments`；需要舊產品路由規則者可明確呼叫 `adaptLegacyBridgeOptions`。提示組裝的 `forcedGlmPromptText`／`fallbackGlmPromptText` 改為中性的 `plainPromptText`。SQLite 繼續讀取 0.1 的內部作者編碼，API 回傳 assistant，無須刪除索引或撤回政策。
+
+這仍是原始碼套件；`private:true` 防止誤發 npm，不妨礙 clone、CLI 或本地 import 使用，尚未在 npm 發布。
 
 ## 可選本機模型
 
@@ -173,3 +186,7 @@ const result = await executeImageRetention({
 本專案以 **AGPL-3.0-only** 發布，見 [LICENSE](LICENSE)。分享修改版或提供修改版的網路互動服務時，需依條款向相應接收者／使用者提供對應原始碼；允許商用。接入者需評估自己結合的應用所受授權義務，不能假設只有這個小模組要公開。
 
 第三方程式、原生執行元件及模型各保留原授權，見 [THIRD_PARTY.md](THIRD_PARTY.md)。AGPL 不要求發布使用者照片、聊天紀錄或金鑰。不要把執行期資料放入公開儲存庫。
+
+## 開發與資料檔
+
+請把真實使用資料放在專案外。`.gitignore` 僅忽略執行期目錄、已知來源檔、照片／模型／金鑰格式，不再忽略所有 JSON；新 manifest 與合成 JSON fixture 能正常提交。每次 push／PR 跑 Windows 和 Linux 無模型 CI，工作流程只有 contents:read 權限，不含私有服務憑證。

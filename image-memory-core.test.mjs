@@ -306,8 +306,8 @@ test('rankImageMatches caps fill candidates from the same query', () => {
 test('selectImageMemorySources preserves each occurrence text and excludes a whole batch on explicit privacy', () => {
   const entries = [
     { role: 'user', ts: iso(1), images: ['inbox/cup.jpg'], text: '' },
-    { role: 'owner', ts: iso(2), images: ['/inbox/cup.jpg'], text: '新買的杯子' },
-    { role: 'resident', ts: iso(3), images: ['inbox/no.jpg'], text: 'not a source' },
+    { role: 'user', ts: iso(2), images: ['/inbox/cup.jpg'], text: '新買的杯子' },
+    { role: 'assistant', ts: iso(3), images: ['inbox/no.jpg'], text: 'not a source' },
     { role: 'user', ts: iso(4), hidden: true, images: ['inbox/hidden.jpg'], text: '' },
   ];
   const sources = selectImageMemorySources(entries, { batchId: 'history', beforeTs: Infinity });

@@ -1,15 +1,16 @@
 {
   "name": "shiguangshou",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test *.test.mjs tools/image-memory/*.test.mjs tools/image-region/*.test.mjs",
+    "test": "node --test --test-concurrency=1 *.test.mjs tools/image-memory/*.test.mjs tools/image-region/*.test.mjs",
     "demo": "node examples/local-demo.mjs",
-    "demo:cleanup": "node examples/local-demo.mjs --cleanup"
+    "demo:cleanup": "node examples/local-demo.mjs --cleanup",
+    "example:chat": "node examples/chat-integration.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "4.3.0",
@@ -35,7 +36,9 @@
     "test-fixtures/*.mjs",
     "LICENSE",
     "README.md",
-    "THIRD_PARTY.md"
+    "THIRD_PARTY.md",
+    "adapters/*.mjs",
+    "CHANGELOG.md"
   ],
   "bin": {
     "shiguangshou": "./cli.mjs"

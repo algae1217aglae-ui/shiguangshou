@@ -35,8 +35,8 @@ test('chat only requests angle fallback when the active bridge supports native c
   const calls = [];
   const client = { recallBatch: async request => { calls.push(request); return { matches: [] }; } };
   const baseTs = Date.parse('2026-09-24T00:00:00Z');
-  await (await prepareImageRecallBatch({ entries: entries(baseTs), batchId: 'codex', baseTs, client, angleFallbackEnabled: true, resolveSource: async source => source })).recallPromise;
-  await (await prepareImageRecallBatch({ entries: entries(baseTs), batchId: 'claude', baseTs, client, angleFallbackEnabled: false, resolveSource: async source => source })).recallPromise;
+  await (await prepareImageRecallBatch({ entries: entries(baseTs), batchId: 'image-capable', baseTs, client, supportsImageAttachments: true, angleFallbackEnabled: true, resolveSource: async source => source })).recallPromise;
+  await (await prepareImageRecallBatch({ entries: entries(baseTs), batchId: 'text-only', baseTs, client, angleFallbackEnabled: false, resolveSource: async source => source })).recallPromise;
   assert.equal(calls[0].angleFallbackEnabled, true);
   assert.equal(calls[1].angleFallbackEnabled, false);
 });
@@ -46,7 +46,7 @@ test('production chat handler forwards the active bridge angle capability into i
   let state = { log: [], msgTotal: 0 };
   const route = await handleImageMemoryChatRoute({
     entries: entries(1000), batchId: 'route', baseTs: 1000, deadlineAt: Date.now() + 500,
-    angleFallbackEnabled: true,
+    angleFallbackEnabled: true, supportsImageAttachments: true,
     client: { recallBatch: async request => { calls.push(request); return { matches: [] }; }, indexBatch: async () => ({ indexed: 0 }) },
     resolveSource: async source => source,
     loadState: () => structuredClone(state), saveState: value => { state = structuredClone(value); },
@@ -116,9 +116,9 @@ test('main prompt receives bounded candidates beside the photo note while both G
     imageRecallContext: '【圖片回憶候選】\nold image',
   });
   assert.match(result.promptText, /PHOTO NOTE\n【圖片回憶候選】/);
-  assert.doesNotMatch(result.forcedGlmPromptText, /圖片回憶候選/);
-  assert.doesNotMatch(result.fallbackGlmPromptText, /圖片回憶候選/);
-  assert.equal(result.forcedGlmPromptText, 'BASE\nPHOTO NOTE');
+  assert.doesNotMatch(result.plainPromptText, /圖片回憶候選/);
+  assert.doesNotMatch(result.plainPromptText, /圖片回憶候選/);
+  assert.equal(result.plainPromptText, 'BASE\nPHOTO NOTE');
 });
 
 test('unconfirmed angle context maps queries, fixed regions and diagnostic-only YOLO without claiming identity', () => {
@@ -140,29 +140,29 @@ test('unconfirmed angle context maps queries, fixed regions and diagnostic-only 
   assert.doesNotMatch(context, /已確認是同一物件/);
 });
 
-test('bridge delivery changes attachments only for enabled Codex and keeps Claude and GLM candidate-free', () => {
+test('bridge delivery changes attachments only for image-capable callers and keeps text-only callers candidate-free', () => {
   const liveRecall = {
     context: 'STRICT\nANGLE',
     strictContext: 'STRICT',
     recalledImagePaths: ['C:/porch/inbox/old.jpg'],
   };
-  const codex = assembleImageRecallBridgeDelivery({ bridgeKind: 'codex', angleFallbackEnabled: true, photoPaths: ['inbox/query.jpg'], liveRecall });
+  const codex = assembleImageRecallBridgeDelivery({ supportsImageAttachments: true, angleFallbackEnabled: true, photoPaths: ['inbox/query.jpg'], liveRecall });
   assert.deepEqual(codex.images, ['inbox/query.jpg', 'C:/porch/inbox/old.jpg']);
   assert.equal(codex.context, 'STRICT\nANGLE');
-  for (const bridgeKind of ['claude', 'glm']) {
-    const delivery = assembleImageRecallBridgeDelivery({ bridgeKind, angleFallbackEnabled: true, photoPaths: ['inbox/query.jpg'], liveRecall });
+  for (const supportsImageAttachments of [false, undefined]) {
+    const delivery = assembleImageRecallBridgeDelivery({ supportsImageAttachments, angleFallbackEnabled: true, photoPaths: ['inbox/query.jpg'], liveRecall });
     assert.deepEqual(delivery.images, ['inbox/query.jpg']);
     assert.equal(delivery.context, 'STRICT');
   }
-  const off = assembleImageRecallBridgeDelivery({ bridgeKind: 'codex', angleFallbackEnabled: false, photoPaths: ['inbox/query.jpg'], liveRecall });
+  const off = assembleImageRecallBridgeDelivery({ supportsImageAttachments: true, angleFallbackEnabled: false, photoPaths: ['inbox/query.jpg'], liveRecall });
   assert.deepEqual(off.images, ['inbox/query.jpg']);
   assert.equal(off.context, 'STRICT');
 });
 
-test('shared bridge dispatch runs final revalidation before assembling Codex images and context', async () => withBridgePolicy(async ({ policyPath }) => {
+test('shared bridge dispatch runs final revalidation before assembling capable caller images and context', async () => withBridgePolicy(async ({ policyPath }) => {
   const source = albumSource(1);
   const dispatched = await prepareImageRecallBridgeDispatch({
-    bridgeKind: 'codex', angleFallbackEnabled: true, maxHits: 1, photoPaths: ['C:/porch/inbox/query.png'],
+    supportsImageAttachments: true, angleFallbackEnabled: true, maxHits: 1, photoPaths: ['C:/porch/inbox/query.png'],
     revalidation: {
       recallResult: { matches: [], unconfirmedCandidatePool: [{
         occurrenceId: 'angle', relativePath: source.relativePath, sha256: 'a'.repeat(64), sourceTs: 2, sources: [source], queryIds: ['q'],
@@ -204,9 +204,9 @@ async function candidateContextDispatch(dir, policyPath, onResolve = () => {}) {
   const historyPath = join(dir, 'history.jsonl'), statePath = join(dir, 'state.json');
   const base = Date.parse('2026-09-20T01:00:00Z');
   const rows = [
-    { role: 'resident', messageId: 'prior', conversationId: 'c', text: 'CANDIDATE_PRIOR', ts: new Date(base).toISOString() },
+    { role: 'assistant', messageId: 'prior', conversationId: 'c', text: 'CANDIDATE_PRIOR', ts: new Date(base).toISOString() },
     { role: 'user', messageId: 'photo', conversationId: 'c', text: 'CANDIDATE_PHOTO', images: ['inbox/a.png'], ts: new Date(base + 60000).toISOString() },
-    { role: 'resident', messageId: 'next', conversationId: 'c', text: 'CANDIDATE_NEXT', ts: new Date(base + 120000).toISOString() },
+    { role: 'assistant', messageId: 'next', conversationId: 'c', text: 'CANDIDATE_NEXT', ts: new Date(base + 120000).toISOString() },
   ];
   writeFileSync(lifePath, '[]'); writeFileSync(historyPath, '');
   writeFileSync(albumsPath, JSON.stringify({ albums: [{ id: 'a', items: [{ id: 'i', src: 'inbox/a.png', at: new Date(base).toISOString() }] }] }));
@@ -214,7 +214,7 @@ async function candidateContextDispatch(dir, policyPath, onResolve = () => {}) {
   const chat = readChatImageSourceSnapshot({ historyPath, statePath });
   const album = readAlbumImageSourceSnapshot(albumsPath).memberships[0];
   return prepareImageRecallBridgeDispatch({
-    bridgeKind: 'codex', angleFallbackEnabled: true, maxHits: 1, photoPaths: ['C:/porch/inbox/q.png'],
+    supportsImageAttachments: true, angleFallbackEnabled: true, maxHits: 1, photoPaths: ['C:/porch/inbox/q.png'],
     revalidation: {
       recallResult: { matches: [], unconfirmedCandidatePool: [{
         occurrenceId: 'candidate', relativePath: 'inbox/a.png', sha256: 'a'.repeat(64), sourceTs: base,
@@ -236,8 +236,8 @@ test('shared candidate dispatch carries the live photo and surrounding conversat
   assert.match(result.context, /【前文】[^\n]*助理：CANDIDATE_PRIOR/);
   assert.match(result.context, /【照片訊息】[^\n]*使用者：CANDIDATE_PHOTO/);
   assert.match(result.context, /【後文】[^\n]*助理：CANDIDATE_NEXT/);
-  for (const bridgeKind of ['claude', 'glm']) {
-    const blocked = assembleImageRecallBridgeDelivery({ bridgeKind, angleFallbackEnabled: true, liveRecall: result.liveRecall });
+  for (const supportsImageAttachments of [false, undefined]) {
+    const blocked = assembleImageRecallBridgeDelivery({ supportsImageAttachments, angleFallbackEnabled: true, liveRecall: result.liveRecall });
     assert.doesNotMatch(blocked.context, /CANDIDATE_/);
   }
 }));
@@ -271,7 +271,7 @@ test('empty and timed-out recall produce no prompt injection', () => {
 test('chat persistence reloads state after asynchronous image preparation and preserves concurrent updates', () => {
   let diskState = { log: [{ role: 'user', text: 'old', ts: '1' }], msgTotal: 1 };
   const staleState = structuredClone(diskState);
-  diskState = { log: [...diskState.log, { role: 'resident', text: 'concurrent heartbeat', ts: '2' }], msgTotal: 2, concurrentFlag: true };
+  diskState = { log: [...diskState.log, { role: 'assistant', text: 'concurrent heartbeat', ts: '2' }], msgTotal: 2, concurrentFlag: true };
   const saved = persistChatEntriesAfterAsyncWork({
     loadState: () => structuredClone(diskState),
     saveState: value => { diskState = structuredClone(value); },
@@ -875,9 +875,9 @@ async function stateContextFixture(dir, policyPath, mutate) {
   const statePath = join(dir, 'state.json');
   const base = Date.parse('2026-09-20T01:00:00Z');
   const rows = [
-    { role: 'resident', messageId: 'prior', conversationId: 'c1', text: 'prior text', ts: new Date(base).toISOString() },
+    { role: 'assistant', messageId: 'prior', conversationId: 'c1', text: 'prior text', ts: new Date(base).toISOString() },
     { role: 'user', messageId: 'photo', conversationId: 'c1', text: 'SYNTH_PHOTO', images: ['inbox/a.png'], ts: new Date(base + 60000).toISOString() },
-    { role: 'resident', messageId: 'next', conversationId: 'c1', text: 'next text', ts: new Date(base + 120000).toISOString() },
+    { role: 'assistant', messageId: 'next', conversationId: 'c1', text: 'next text', ts: new Date(base + 120000).toISOString() },
   ];
   writeFileSync(lifePath, '[]');
   writeFileSync(albumsPath, JSON.stringify({ albums: [{ id: 'a', name: 'album', items: [{ id: 'i', src: 'inbox/a.png', at: new Date(base).toISOString() }] }] }));
@@ -919,7 +919,7 @@ test('bridge keeps an independent album source but drops context when the chat p
 
 test('bridge rebuilds the live contiguous window and stops at a newly inserted private row', async () => withBridgePolicy(async ({ dir, policyPath }) => {
   const result = await stateContextFixture(dir, policyPath, (rows, statePath, base) => {
-    rows.splice(2, 0, { role: 'resident', messageId: 'hidden', conversationId: 'c1', text: '不要存 synthetic secret', memorySafe: false, ts: new Date(base + 90000).toISOString() });
+    rows.splice(2, 0, { role: 'assistant', messageId: 'hidden', conversationId: 'c1', text: '不要存 synthetic secret', memorySafe: false, ts: new Date(base + 90000).toISOString() });
     writeFileSync(statePath, JSON.stringify({ log: rows }));
   });
   assert.deepEqual(result.matches[0].context.map(row => row.messageId), ['prior', 'photo']);
@@ -943,11 +943,11 @@ test('bridge rebuilds context from a later surviving chat anchor when the first 
   const statePath = join(dir, 'state.json');
   const base = Date.parse('2026-09-20T01:00:00Z');
   const rows = [
-    { role: 'resident', messageId: 'prior-1', conversationId: 'c1', text: 'FIRST_PRIOR', ts: new Date(base).toISOString() },
+    { role: 'assistant', messageId: 'prior-1', conversationId: 'c1', text: 'FIRST_PRIOR', ts: new Date(base).toISOString() },
     { role: 'user', messageId: 'photo-1', conversationId: 'c1', text: 'FIRST_PHOTO', images: ['inbox/a.png'], ts: new Date(base + 60000).toISOString() },
-    { role: 'resident', messageId: 'prior-2', conversationId: 'c2', text: 'SECOND_PRIOR', ts: new Date(base + 120000).toISOString() },
+    { role: 'assistant', messageId: 'prior-2', conversationId: 'c2', text: 'SECOND_PRIOR', ts: new Date(base + 120000).toISOString() },
     { role: 'user', messageId: 'photo-2', conversationId: 'c2', text: 'SECOND_PHOTO', images: ['inbox/a.png'], ts: new Date(base + 180000).toISOString() },
-    { role: 'resident', messageId: 'next-2', conversationId: 'c2', text: 'SECOND_NEXT', ts: new Date(base + 240000).toISOString() },
+    { role: 'assistant', messageId: 'next-2', conversationId: 'c2', text: 'SECOND_NEXT', ts: new Date(base + 240000).toISOString() },
   ];
   writeFileSync(lifePath, '[]');
   writeFileSync(albumsPath, '{"albums":[]}');

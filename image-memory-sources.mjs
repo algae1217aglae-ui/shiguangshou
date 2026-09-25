@@ -92,7 +92,7 @@ export function readLifeImageSourceSnapshot(path) {
     if (!relativePath || ts == null || !id || !memoryEntryAllowsImages({ ...entry, images: [relativePath] })) continue;
     memberships.push({
       membershipId: `life:${id}`, sourceType: 'life', sourceId: id, relativePath,
-      sourceTs: ts, sourceText: codePoints(entry.text, SOURCE_TEXT_LIMIT), author: entry.author === 'door' ? 'resident' : 'user',
+      sourceTs: ts, sourceText: codePoints(entry.text, SOURCE_TEXT_LIMIT), author: entry.author === 'assistant' ? 'assistant' : 'user',
       conversationId: null, sourceRevision: source.revision, locator: { kind: 'life', confidence: 'exact', sourceId: id },
       metadata: { sharedAt: new Date(ts).toISOString(), sourceTextLength: pointLength(entry.text) },
     });
@@ -155,7 +155,7 @@ function entryKey(entry) {
 }
 
 function chatAuthor(role) {
-  return ['user', 'owner'].includes(role) ? 'user' : 'resident';
+  return role === 'user' ? 'user' : 'assistant';
 }
 
 export function readChatImageSourceSnapshot({ historyPath, statePath, cursor = null }) {

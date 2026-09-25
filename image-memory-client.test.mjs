@@ -402,7 +402,7 @@ test('collectImageMemoryEntries merges archive and state, preserves occurrences,
     '{bad}',
   ].join('\n'));
   writeFileSync(statePath, JSON.stringify({ log: [
-    { role: 'owner', ts: 100, images: ['inbox/a.jpg'], text: 'richer current text' },
+    { role: 'user', ts: 100, images: ['inbox/a.jpg'], text: 'richer current text' },
     { role: 'user', ts: 400, images: ['inbox/a.jpg'], text: '不要存' },
     { role: 'user', ts: 500, images: ['inbox/b.jpg'], text: 'safe' },
     { role: 'user', ts: 600, images: ['inbox/missing.jpg'], text: 'gone' },

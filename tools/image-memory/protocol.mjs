@@ -44,7 +44,7 @@ function sourceMembership(value) {
     membershipId: requiredString(value.membershipId, 'membershipId'), sourceType: sourceType(value.sourceType),
     sourceId: requiredString(value.sourceId, 'sourceId'), relativePath: relativePath(value.relativePath),
     sourceTs: finiteNumber(value.sourceTs, 'sourceTs'), sourceText: [...String(value.sourceText || '')].slice(0, 160).join(''),
-    author: value.author == null ? null : (['user', 'resident'].includes(value.author) ? value.author : (() => { throw protocolError('PROTOCOL_INVALID_REQUEST', 'author is invalid'); })()),
+    author: value.author == null ? null : (['user', 'assistant'].includes(value.author) ? value.author : (() => { throw protocolError('PROTOCOL_INVALID_REQUEST', 'author is invalid'); })()),
     conversationId: value.conversationId == null ? null : String(value.conversationId), sourceRevision: requiredString(value.sourceRevision, 'sourceRevision'),
     locator: value.locator && typeof value.locator === 'object' ? value.locator : null,
     metadata: value.metadata && typeof value.metadata === 'object' ? value.metadata : {},
@@ -56,7 +56,7 @@ function chatMessage(value) {
   return {
     messageId: requiredString(value.messageId, 'messageId'), conversationId: requiredString(value.conversationId, 'conversationId'),
     orderKey: requiredString(value.orderKey, 'orderKey'), sourceTs: finiteNumber(value.sourceTs, 'sourceTs'),
-    author: ['user', 'resident'].includes(value.author) ? value.author : (() => { throw protocolError('PROTOCOL_INVALID_REQUEST', 'author is invalid'); })(),
+    author: ['user', 'assistant'].includes(value.author) ? value.author : (() => { throw protocolError('PROTOCOL_INVALID_REQUEST', 'author is invalid'); })(),
     text: [...String(value.text || '')].slice(0, 240).join(''), hidden: value.hidden === true, memorySafe: value.memorySafe !== false,
     sourceRevision: requiredString(value.sourceRevision, 'sourceRevision'), locator: value.locator && typeof value.locator === 'object' ? value.locator : null,
   };

@@ -35,6 +35,17 @@ function withStore(run) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+test('neutral assistant authors round-trip through the compatible v0.1 SQLite encoding', () => withStore(db => {
+  const imageId = upsertImage(db, image());
+  replaceSourceSnapshot(db, { sourceType: 'chat', revision: 'r', complete: true,
+    memberships: [{ membershipId: 'm', sourceId: 'photo', imageId, relativePath: 'inbox/a.jpg', sourceTs: 100, sourceText: 'photo', author: 'assistant', conversationId: 'c' }],
+    messages: [{ messageId: 'photo', conversationId: 'c', orderKey: '1', sourceTs: 100, author: 'assistant', text: 'photo', memorySafe: true, locator: { confidence: 'exact' } }],
+  });
+  assert.equal(db.prepare('SELECT author FROM chat_messages').get().author, 'resident');
+  assert.equal(listImageSources(db, imageId)[0].author, 'assistant');
+  assert.equal(getChatWindow(db, { membershipId: 'm', beforeTs: 200 })[0].author, 'assistant');
+}));
+
 const image = (overrides = {}) => ({
   relativePath: 'inbox/a.jpg', sha256: 'a'.repeat(64), phash: '0123456789abcdef',
   phashVersion: 'p1', phashUsable: true, embedding: null, embeddingDims: null,
@@ -249,8 +260,8 @@ test('chat snapshot storage erases private text and preserves its context barrie
       }],
       messages: [
         { messageId: 'photo', conversationId: 'c1', orderKey: '01', sourceTs: 100, author: 'user', text: 'photo', memorySafe: true, locator: { confidence: 'exact' } },
-        { messageId: 'private', conversationId: 'c1', orderKey: '02', sourceTs: 110, author: 'resident', text: '不要存 synthetic secret', memorySafe: false, locator: { confidence: 'exact' } },
-        { messageId: 'after', conversationId: 'c1', orderKey: '03', sourceTs: 120, author: 'resident', text: 'must not cross', memorySafe: true, locator: { confidence: 'exact' } },
+        { messageId: 'private', conversationId: 'c1', orderKey: '02', sourceTs: 110, author: 'assistant', text: '不要存 synthetic secret', memorySafe: false, locator: { confidence: 'exact' } },
+        { messageId: 'after', conversationId: 'c1', orderKey: '03', sourceTs: 120, author: 'assistant', text: 'must not cross', memorySafe: true, locator: { confidence: 'exact' } },
       ],
     });
     assert.equal(db.prepare('SELECT text FROM chat_messages WHERE message_id=?').get('private').text, '');
@@ -269,8 +280,8 @@ test('chat context cannot cross an interleaved conversation row', () => {
       }],
       messages: [
         { messageId: 'photo', conversationId: 'c1', orderKey: '01', sourceTs: 100, author: 'user', text: 'photo', memorySafe: true, locator: { confidence: 'exact' } },
-        { messageId: 'other', conversationId: 'c2', orderKey: '02', sourceTs: 110, author: 'resident', text: 'barrier', memorySafe: true, locator: { confidence: 'exact' } },
-        { messageId: 'after', conversationId: 'c1', orderKey: '03', sourceTs: 120, author: 'resident', text: 'must not cross', memorySafe: true, locator: { confidence: 'exact' } },
+        { messageId: 'other', conversationId: 'c2', orderKey: '02', sourceTs: 110, author: 'assistant', text: 'barrier', memorySafe: true, locator: { confidence: 'exact' } },
+        { messageId: 'after', conversationId: 'c1', orderKey: '03', sourceTs: 120, author: 'assistant', text: 'must not cross', memorySafe: true, locator: { confidence: 'exact' } },
       ],
     });
     assert.deepEqual(getChatWindow(db, { membershipId: 'chat:photo:image:0', beforeTs: 200 }).map(row => row.messageId), ['photo']);

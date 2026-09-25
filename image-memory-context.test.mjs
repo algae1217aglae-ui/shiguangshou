@@ -12,9 +12,9 @@ const message = (id, minute, author, text, extra = {}) => ({
 
 test('chat context takes two prior and three next positions inside ten minutes', () => {
   const rows = [
-    message('01', -3, 'user', 'old'), message('02', -2, 'resident', 'prior two'), message('03', -1, 'user', 'prior one'),
-    message('04', 0, 'user', 'photo'), message('05', 1, 'resident', 'next one'), message('06', 2, 'user', 'next two'),
-    message('07', 3, 'resident', 'next three'), message('08', 4, 'user', 'too many'),
+    message('01', -3, 'user', 'old'), message('02', -2, 'assistant', 'prior two'), message('03', -1, 'user', 'prior one'),
+    message('04', 0, 'user', 'photo'), message('05', 1, 'assistant', 'next one'), message('06', 2, 'user', 'next two'),
+    message('07', 3, 'assistant', 'next three'), message('08', 4, 'user', 'too many'),
   ];
   const selected = selectChatContextWindow(rows, { photoMessageId: '04', beforeTs: base + 20 * 60000 });
   assert.deepEqual(selected.map(row => row.messageId), ['02', '03', '04', '05', '06', '07']);
@@ -24,9 +24,9 @@ test('chat context takes two prior and three next positions inside ten minutes',
 test('private or invalid positions are barriers and cannot be skipped to fill a side', () => {
   const rows = [
     message('01', -3, 'user', 'must not jump'),
-    message('02', -2, 'resident', 'private', { memorySafe: false }),
+    message('02', -2, 'assistant', 'private', { memorySafe: false }),
     message('03', -1, 'user', 'prior one'), message('04', 0, 'user', 'photo'),
-    message('05', 1, 'resident', 'private', { hidden: true }), message('06', 2, 'user', 'must not jump next'),
+    message('05', 1, 'assistant', 'private', { hidden: true }), message('06', 2, 'user', 'must not jump next'),
   ];
   const selected = selectChatContextWindow(rows, { photoMessageId: '04', beforeTs: base + 20 * 60000 });
   assert.deepEqual(selected.map(row => row.messageId), ['03', '04']);
@@ -35,9 +35,9 @@ test('private or invalid positions are barriers and cannot be skipped to fill a 
 test('context never crosses conversation, ten minutes, future, or unreliable locator', () => {
   const rows = [
     message('01', -11, 'user', 'too old'),
-    message('02', -1, 'resident', 'other', { conversationId: 'other' }),
+    message('02', -1, 'assistant', 'other', { conversationId: 'other' }),
     message('03', 0, 'user', 'photo'),
-    message('04', 1, 'resident', 'unreliable', { locator: { confidence: 'none' } }),
+    message('04', 1, 'assistant', 'unreliable', { locator: { confidence: 'none' } }),
     message('05', 30, 'user', 'future'),
   ];
   const selected = selectChatContextWindow(rows, { photoMessageId: '03', beforeTs: base + 10 * 60000 });
@@ -48,7 +48,7 @@ test('context distance is absolute even when persisted timestamps run backwards'
   const rows = [
     message('01', 11, 'user', 'ordered before but timestamped later'),
     message('02', 0, 'user', 'photo'),
-    message('03', -11, 'resident', 'ordered after but timestamped earlier'),
+    message('03', -11, 'assistant', 'ordered after but timestamped earlier'),
   ];
   const selected = selectChatContextWindow(rows, { photoMessageId: '02', beforeTs: base + 20 * 60000 });
   assert.deepEqual(selected.map(row => row.messageId), ['02']);

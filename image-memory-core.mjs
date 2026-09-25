@@ -427,14 +427,14 @@ export function rankUnconfirmedAngleCandidates(candidates, {
 export function selectImageMemorySources(entries, { batchId = 'batch', beforeTs = Infinity } = {}) {
   void beforeTs;
   const rows = Array.isArray(entries) ? entries : [];
-  const eligible = rows.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry && ['user', 'owner'].includes(entry.role) && !entry.hidden);
-  const batchPrivate = eligible.some(({ entry }) => !memoryEntryAllowsImages({ ...entry, images: [], peekFile: null, voiceFile: null }));
+  const eligible = rows.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry && entry.role === 'user' && !entry.hidden);
+  const batchPrivate = eligible.some(({ entry }) => !memoryEntryAllowsImages({ ...entry, images: [] }));
   const allowed = [];
   const denied = new Set();
 
   for (const { entry, index } of rows.map((entry, index) => ({ entry, index }))) {
     const imagePaths = Array.isArray(entry?.images) ? entry.images : (entry?.image ? [entry.image] : []);
-    if (!entry || !['user', 'owner'].includes(entry.role)) continue;
+    if (!entry || entry.role !== 'user') continue;
     for (let imageIndex = 0; imageIndex < imagePaths.length; imageIndex++) {
       const relativePath = normalizeRelativePath(imagePaths[imageIndex]);
       if (!relativePath) continue;

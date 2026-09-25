@@ -227,7 +227,7 @@ test('background backfill syncs strict chat, life, and album snapshots and never
     writeFileSync(historyPath, [
       JSON.stringify({ role: 'user', messageId: 'm1', conversationId: 'c1', text: 'photo', images: ['inbox/a.png'], ts: '2026-09-20T01:00:00Z' }),
       '{invalid}',
-      JSON.stringify({ role: 'resident', messageId: 'm2', conversationId: 'c1', text: 'after', ts: '2026-09-20T01:01:00Z' }),
+      JSON.stringify({ role: 'assistant', messageId: 'm2', conversationId: 'c1', text: 'after', ts: '2026-09-20T01:01:00Z' }),
     ].join('\n') + '\n');
     synced.length = 0;
     const incompleteChat = await runner.run();

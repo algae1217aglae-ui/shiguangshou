@@ -59,7 +59,7 @@ function sourceLine(source) {
 
 function contextLine(row) {
   const kind = row.contextKind === 'photo' ? '照片訊息' : row.contextKind === 'prior' ? '前文' : '後文';
-  const who = row.author === 'resident' ? '助理' : '使用者';
+  const who = row.author === 'assistant' ? '助理' : '使用者';
   return `【${kind}】${timeLabel(row.sourceTs)} ${who}：${truncate(row.text, 120, row.locator?.textLength)}`;
 }
 

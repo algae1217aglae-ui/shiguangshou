@@ -1,6 +1,6 @@
 # 第三方程式與模型
 
-Photo Recall 自有程式以 AGPL-3.0-only 發布。以下依賴各保留上游授權，本專案不重新授權它們。原始碼包不含 node_modules、Python 環境、模型權重或使用者資料；安裝時需保留第三方套件隨附的 LICENSE/NOTICE。
+拾光獸 (Shiguangshou) 自有程式以 AGPL-3.0-only 發布。以下依賴各保留上游授權，本專案不重新授權它們。原始碼包不含 node_modules、Python 環境、模型權重或使用者資料；安裝時需保留第三方套件隨附的 LICENSE/NOTICE。
 
 | 元件 | 本版使用版本 | 上游授權／來源 |
 |---|---|---|
@@ -15,6 +15,6 @@ Photo Recall 自有程式以 AGPL-3.0-only 發布。以下依賴各保留上游�
 
 Node 的完整依賴版本、完整性雜湊與套件授權欄位在 package-lock.json。sharp 所帶 libvips 及其他原生元件有自己的第三方通知；若另行打包二進位檔或容器，需一併保留並履行這些授權。
 
-YOLO 準備器保存上游 LICENSE，並將解析出的 Python 套件 wheels 與雜湊鎖在使用者本機 runtime。這不是把套件或模型改成 Photo Recall 的授權。具體固定 SHA、URL 和版本見 tools/image-region/detector-spec.mjs。
+YOLO 準備器保存上游 LICENSE，並將解析出的 Python 套件 wheels 與雜湊鎖在使用者本機 runtime。這不是把套件或模型改成 拾光獸 (Shiguangshou) 的授權。具體固定 SHA、URL 和版本見 tools/image-region/detector-spec.mjs。
 
 不要將「AGPL 可商用」解讀成可以省略對應原始碼義務，也不要把使用者照片、聊天或金鑰當成需要公開的程式碼。

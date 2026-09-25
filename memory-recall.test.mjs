@@ -11,7 +11,7 @@ test('explicit private metadata excludes images and chat context', () => {
   assert.equal(normalizeMemoryEntry({...row, hidden:true}), null);
 });
 test('ordinary source preserves identity and media', () => {
-  const row = {role:'owner',ts:'2026-01-01T00:00:00Z',messageId:'synthetic-1',conversationId:'synthetic',text:'a photo',images:['inbox/photo.png']};
+  const row = {role:'user',ts:'2026-01-01T00:00:00Z',messageId:'synthetic-1',conversationId:'synthetic',text:'a photo',images:['inbox/photo.png']};
   const normalized = normalizeMemoryEntry(row);
   assert.equal(normalized.messageId,row.messageId);
   assert.equal(normalized.conversationId,row.conversationId);

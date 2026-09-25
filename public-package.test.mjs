@@ -37,3 +37,12 @@ for (const enabled of [false, true]) test(`standalone demo recalls a synthetic i
   assert.equal(result.oldChatPhotoExists, !enabled);
   assert.equal(result.pendingRepairCount, 0);
 });
+
+test('minimal neutral chat integration indexes, recalls and validates image plus context', () => {
+  const script = fileURLToPath(new URL('./examples/chat-integration.mjs', import.meta.url));
+  const result = JSON.parse(execFileSync(process.execPath, [script], { encoding: 'utf8', timeout: 20000, windowsHide: true }));
+  assert.equal(result.matchKind, 'exact');
+  assert.equal(result.imageCount, 2);
+  assert.equal(result.includesAssistantContext, true);
+  assert.equal(result.includesPrivateText, false);
+});

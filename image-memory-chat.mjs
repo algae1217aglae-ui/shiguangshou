@@ -23,7 +23,7 @@ export function imageMemoryPrivacyFields(payload, item) {
 
 export async function prepareImageRecallBatch({
   entries, batchId, baseTs, deadlineAt = Date.now() + 2500, client, policyPath = null,
-  angleFallbackEnabled = false,
+  angleFallbackEnabled = false, supportsImageAttachments = false,
   resolveSource = async source => source,
   shaForSource = null,
 }) {
@@ -60,14 +60,14 @@ export async function prepareImageRecallBatch({
   const queries = sources.map(({ queryId, occurrenceId, relativePath }) => ({ queryId, occurrenceId, relativePath }));
   const excludeOccurrenceIds = sources.map(source => source.occurrenceId);
   const recallPromise = queries.length
-    ? Promise.resolve(client.recallBatch({ queries, beforeTs: baseTs, excludeOccurrenceIds, deadlineAt, angleFallbackEnabled: angleFallbackEnabled === true })).catch(() => emptyRecall)
+    ? Promise.resolve(client.recallBatch({ queries, beforeTs: baseTs, excludeOccurrenceIds, deadlineAt, angleFallbackEnabled: angleFallbackEnabled === true && supportsImageAttachments === true })).catch(() => emptyRecall)
     : Promise.resolve(emptyRecall);
   return { sources, denied: [...denied], issues, recallPromise, excludeOccurrenceIds };
 }
 
 export function assembleImageRecallPrompts({ basePromptText, imageRecallContext }) {
   const promptText = imageRecallContext ? `${basePromptText}\n${imageRecallContext}` : basePromptText;
-  return { promptText, forcedGlmPromptText: basePromptText, fallbackGlmPromptText: basePromptText };
+  return { promptText, plainPromptText: basePromptText };
 }
 
 function safeContextValue(value) {
@@ -94,8 +94,8 @@ export function formatUnconfirmedAngleContext(candidates, { maxHits = 3, maxData
   return [evidenceContext, sourceContext].filter(Boolean).join('\n');
 }
 
-export function assembleImageRecallBridgeDelivery({ bridgeKind, angleFallbackEnabled = false, photoPaths = [], liveRecall = {} } = {}) {
-  const supportsCandidates = angleFallbackEnabled === true && bridgeKind === 'codex';
+export function assembleImageRecallBridgeDelivery({ supportsImageAttachments = false, angleFallbackEnabled = false, photoPaths = [], liveRecall = {} } = {}) {
+  const supportsCandidates = angleFallbackEnabled === true && supportsImageAttachments === true;
   const images = [...new Set([...(photoPaths || []), ...(supportsCandidates ? liveRecall.recalledImagePaths || [] : [])])];
   return {
     images,
@@ -109,8 +109,7 @@ export function imageRecallPromptsForCurrentPolicy({ basePromptText, promptSuffi
   const prompts = assembleImageRecallPrompts({ basePromptText, imageRecallContext });
   return {
     promptText: prompts.promptText + promptSuffix,
-    forcedGlmPromptText: prompts.forcedGlmPromptText + promptSuffix,
-    fallbackGlmPromptText: prompts.fallbackGlmPromptText + promptSuffix,
+    plainPromptText: prompts.plainPromptText + promptSuffix,
     matches: current.matches,
     warning: current.warning,
   };
@@ -194,7 +193,7 @@ function liveChatSource(source, views, historyPath) {
   const text = [...String(entry.text || '')];
   return {
     ...source, sourceTs, sourceText: text.slice(0, 160).join(''),
-    author: ['user', 'owner'].includes(entry.role) ? 'user' : 'resident',
+    author: entry.role === 'user' ? 'user' : 'assistant',
     metadata: { ...(source.metadata || {}), sourceTextLength: text.length },
   };
 }
@@ -214,7 +213,7 @@ function liveContextRow(entry, { locator, orderKey, fallbackMessageId = '', fall
   const text = allowed ? [...String(entry.text || '')] : [];
   return {
     messageId, conversationId, orderKey, sourceTs: Number.isFinite(sourceTs) ? sourceTs : 0,
-    author: ['user', 'owner'].includes(entry?.role) ? 'user' : 'resident',
+    author: entry?.role === 'user' ? 'user' : 'assistant',
     text: allowed ? text.slice(0, 240).join('') : '', hidden: !allowed, memorySafe: allowed,
     locator: { ...locator, ...(allowed ? { textLength: text.length } : {}) },
   };
@@ -562,7 +561,7 @@ export async function revalidateImageRecallForBridge({
 }
 
 export async function prepareImageRecallBridgeDispatch({
-  bridgeKind,
+  supportsImageAttachments = false,
   angleFallbackEnabled = false,
   maxHits = 3,
   photoPaths = [],
@@ -570,11 +569,11 @@ export async function prepareImageRecallBridgeDispatch({
 } = {}) {
   const liveRecall = await revalidateImageRecallForBridge({
     ...revalidation,
-    angleFallbackEnabled,
+    angleFallbackEnabled: angleFallbackEnabled && supportsImageAttachments,
     maxHits,
   });
   const delivery = assembleImageRecallBridgeDelivery({
-    bridgeKind,
+    supportsImageAttachments,
     angleFallbackEnabled,
     photoPaths,
     liveRecall,
@@ -601,6 +600,7 @@ export async function handleImageMemoryChatRoute({
   baseTs,
   deadlineAt = Date.now() + 2500,
   angleFallbackEnabled = false,
+  supportsImageAttachments = false,
   client,
   policyPath = null,
   resolveSource = async source => source,
@@ -619,7 +619,7 @@ export async function handleImageMemoryChatRoute({
       catch (error) { onIssue({ stage: 'recovery', code: String(error?.code || 'IMAGE_MEMORY_POLICY_RECOVERY_FAILED') }); }
     }
     try {
-      prepared = await prepareImageRecallBatch({ entries, batchId, baseTs, deadlineAt, angleFallbackEnabled, client, policyPath, resolveSource, shaForSource });
+      prepared = await prepareImageRecallBatch({ entries, batchId, baseTs, deadlineAt, angleFallbackEnabled, supportsImageAttachments, client, policyPath, resolveSource, shaForSource });
       for (const issue of prepared.issues) onIssue({ stage: 'source', ...issue });
       if (prepared.denied.length && typeof client?.revoke === 'function') {
         try { await client.revoke(prepared.denied); }

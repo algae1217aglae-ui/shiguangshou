@@ -78,7 +78,7 @@ test('chat snapshot preserves equal duplicates and binds legacy locators to a fi
   const state = join(dir, 'state.json');
   const ts = '2026-09-20T01:00:00Z';
   const photo = { role: 'user', text: '', images: ['inbox/a.png'], ts };
-  const lines = [photo, photo, { role: 'resident', text: 'after', ts: '2026-09-20T01:01:00Z' }];
+  const lines = [photo, photo, { role: 'assistant', text: 'after', ts: '2026-09-20T01:01:00Z' }];
   writeFileSync(history, lines.map(row => JSON.stringify(row)).join('\r\n') + '\r\n');
   writeFileSync(state, JSON.stringify({ log: [photo] }));
   const first = readChatImageSourceSnapshot({ historyPath: history, statePath: state });
@@ -103,7 +103,7 @@ test('chat generation survives append while bounded locators reject reused offse
   const original = readChatImageSourceSnapshot({ historyPath: history, statePath: state });
   const originalMembership = original.memberships[0];
 
-  writeFileSync(history, `${JSON.stringify(first)}\r\n${JSON.stringify(second)}\r\n${JSON.stringify({ role: 'resident', text: 'after', ts: '2026-09-20T01:02:00Z' })}\r\n`);
+  writeFileSync(history, `${JSON.stringify(first)}\r\n${JSON.stringify(second)}\r\n${JSON.stringify({ role: 'assistant', text: 'after', ts: '2026-09-20T01:02:00Z' })}\r\n`);
   const appended = readChatImageSourceSnapshot({ historyPath: history, statePath: state });
   assert.equal(appended.generation, original.generation);
   assert.equal(appended.memberships[0].membershipId, originalMembership.membershipId);
@@ -118,7 +118,7 @@ test('chat generation survives append while bounded locators reject reused offse
   writeFileSync(history, `${JSON.stringify(first)}\r\n${JSON.stringify(replacement)}\r\n`);
   assert.equal(verifyChatHistoryLocator(history, originalMembership.locator), null);
 
-  writeFileSync(history, `${JSON.stringify({ role: 'resident', text: 'inserted', ts: '2026-09-20T00:59:00Z' })}\n${JSON.stringify(first)}\n${JSON.stringify(second)}\n`);
+  writeFileSync(history, `${JSON.stringify({ role: 'assistant', text: 'inserted', ts: '2026-09-20T00:59:00Z' })}\n${JSON.stringify(first)}\n${JSON.stringify(second)}\n`);
   assert.notEqual(readChatImageSourceSnapshot({ historyPath: history, statePath: state }).generation, original.generation);
 }));
 
@@ -126,15 +126,15 @@ test('bounded history context reads the current adjacent rows around an unchange
   const history = join(dir, 'chat-history.jsonl');
   const state = join(dir, 'state.json');
   const rows = [
-    { role: 'resident', messageId: 'prior', conversationId: 'c1', text: 'prior', ts: '2026-09-20T01:00:00Z' },
+    { role: 'assistant', messageId: 'prior', conversationId: 'c1', text: 'prior', ts: '2026-09-20T01:00:00Z' },
     { role: 'user', messageId: 'photo', conversationId: 'c1', text: 'photo', images: ['inbox/a.png'], ts: '2026-09-20T01:01:00Z' },
-    { role: 'resident', messageId: 'next', conversationId: 'c1', text: 'next', ts: '2026-09-20T01:02:00Z' },
+    { role: 'assistant', messageId: 'next', conversationId: 'c1', text: 'next', ts: '2026-09-20T01:02:00Z' },
   ];
   writeFileSync(state, JSON.stringify({ log: [] }));
   writeFileSync(history, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
   const locator = readChatImageSourceSnapshot({ historyPath: history, statePath: state }).memberships[0].locator;
   assert.deepEqual(readChatHistoryContextEntries(history, locator).map(row => row.entry.messageId), ['prior', 'photo', 'next']);
-  rows.splice(2, 0, { role: 'resident', messageId: 'hidden', conversationId: 'c1', text: 'private', memorySafe: false, ts: '2026-09-20T01:01:30Z' });
+  rows.splice(2, 0, { role: 'assistant', messageId: 'hidden', conversationId: 'c1', text: 'private', memorySafe: false, ts: '2026-09-20T01:01:30Z' });
   writeFileSync(history, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
   assert.deepEqual(readChatHistoryContextEntries(history, locator).map(row => row.entry.messageId), ['prior', 'photo', 'hidden', 'next']);
 }));
@@ -157,7 +157,7 @@ test('chat adapter reports an invalid middle row as incomplete without throwing'
   writeFileSync(history, [
     JSON.stringify({ role: 'user', messageId: 'before', text: 'before', ts: '2026-09-20T01:00:00Z' }),
     '{invalid}',
-    JSON.stringify({ role: 'resident', messageId: 'after', text: 'after', ts: '2026-09-20T01:01:00Z' }),
+    JSON.stringify({ role: 'assistant', messageId: 'after', text: 'after', ts: '2026-09-20T01:01:00Z' }),
   ].join('\n') + '\n');
   const snapshot = readChatImageSourceSnapshot({ historyPath: history, statePath: state });
   assert.equal(snapshot.status, 'incomplete');
@@ -173,9 +173,9 @@ test('private chat rows remain opaque barriers without storing their text', () =
   writeFileSync(state, JSON.stringify({ log: [] }));
   writeFileSync(history, [
     { role: 'user', messageId: 'photo', conversationId: 'c1', text: 'photo', images: ['inbox/a.png'], ts: new Date(base).toISOString() },
-    { role: 'resident', messageId: 'hidden', conversationId: 'c1', text: 'hidden synthetic secret', hidden: true, ts: new Date(base + 60000).toISOString() },
-    { role: 'resident', messageId: 'private-text', conversationId: 'c1', text: '不要存 synthetic secret', ts: new Date(base + 120000).toISOString() },
-    { role: 'resident', messageId: 'normal', conversationId: 'c1', text: 'must not cross', ts: new Date(base + 180000).toISOString() },
+    { role: 'assistant', messageId: 'hidden', conversationId: 'c1', text: 'hidden synthetic secret', hidden: true, ts: new Date(base + 60000).toISOString() },
+    { role: 'assistant', messageId: 'private-text', conversationId: 'c1', text: '不要存 synthetic secret', ts: new Date(base + 120000).toISOString() },
+    { role: 'assistant', messageId: 'normal', conversationId: 'c1', text: 'must not cross', ts: new Date(base + 180000).toISOString() },
   ].map(row => JSON.stringify(row)).join('\n') + '\n');
   const snapshot = readChatImageSourceSnapshot({ historyPath: history, statePath: state });
   const hidden = snapshot.messages.find(row => row.messageId === 'hidden');
