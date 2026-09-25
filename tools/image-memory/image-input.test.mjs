@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import sharp from 'sharp';
@@ -19,7 +19,7 @@ test('resolveInboxImage only accepts a real direct child of inbox', async () => 
     const file = join(inbox, 'ok.png');
     await sharp({ create: { width: 8, height: 8, channels: 3, background: 'red' } }).png().toFile(file);
     const resolved = await resolveInboxImage('inbox/ok.png', inbox);
-    assert.equal(resolved.absolutePath, file);
+    assert.equal(resolved.absolutePath, realpathSync(file));
     assert.equal(resolved.stat.size > 0, true);
     await assert.rejects(resolveInboxImage('../outside.png', inbox), /inbox/i);
     await assert.rejects(resolveInboxImage('inbox/sub/file.png', inbox), /inbox/i);

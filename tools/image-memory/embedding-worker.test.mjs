@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -27,7 +27,7 @@ test('embedding worker validates inbox paths and returns only normalized arrays 
   try {
     const result = await worker.handle({ id: '1', op: 'embed', relativePath: 'inbox/a.png', embeddingVersion: 'clip-test-v1' });
     assert.deepEqual(result, { embedding: [0.6000000238418579, 0.800000011920929], embeddingVersion: 'clip-test-v1' });
-    assert.equal(inputPath, join(inboxDir, 'a.png'));
+    assert.equal(inputPath, realpathSync(join(inboxDir, 'a.png')));
     await assert.rejects(worker.handle({ id: '2', op: 'embed', relativePath: '../a.png', embeddingVersion: 'clip-test-v1' }), error => error.code === 'IMAGE_PATH_INVALID');
     await assert.rejects(worker.handle({ id: '3', op: 'embed', relativePath: 'inbox/a.png', embeddingVersion: 'old' }), error => error.code === 'MODEL_VERSION_MISMATCH');
     assert.deepEqual(await worker.handle({ id: '4', op: 'stats' }), { loaded: true, embeddingVersion: 'clip-test-v1' });

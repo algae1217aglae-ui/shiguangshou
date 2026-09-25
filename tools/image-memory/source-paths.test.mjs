@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import sharp from 'sharp';
@@ -30,7 +30,7 @@ test('all three finite roots resolve and decode the same direct-child contract',
       const relativePath = `${name}/${name.replace('-', '')}.png`;
       assert.equal(normalizeImageMemoryPath(relativePath), relativePath);
       const resolved = await resolveImageMemoryImage(relativePath, roots);
-      assert.equal(resolved.absolutePath, file);
+      assert.equal(resolved.absolutePath, realpathSync(file));
       const decoded = await decodeImageMemoryImage(relativePath, roots);
       assert.equal(decoded.width, 9);
       assert.match(decoded.sha256, /^[0-9a-f]{64}$/);

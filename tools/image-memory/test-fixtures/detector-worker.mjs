@@ -1,12 +1,12 @@
 import readline from 'node:readline';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((out, value, index, all) => index % 2 ? out : [...out, [value.replace(/^--/, ''), all[index + 1]]], []));
 const mode = args.mode || 'good';
 const runtime = args.runtime ? resolve(args.runtime) : '';
 const envContractOk = runtime
   && resolve(process.env.PORCH_DETECTOR_RUNTIME || '') === runtime
-  && resolve(process.env.YOLO_CONFIG_DIR || '').startsWith(`${runtime}\\`)
+  && resolve(process.env.YOLO_CONFIG_DIR || '').startsWith(`${runtime}${sep}`)
   && process.env.YOLO_AUTOINSTALL === 'false'
   && process.env.YOLO_OFFLINE === 'true'
   && process.env.PIP_INDEX_URL === 'https://pypi.org/simple'

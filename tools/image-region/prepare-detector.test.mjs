@@ -2,8 +2,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import * as prepareModule from './prepare-detector.mjs';
@@ -33,7 +33,7 @@ test('detector prepare refuses a real run without an explicit Python path', () =
 test('detector prepare path guard only accepts the owned runtime and refuses junction cleanup', async () => {
   assert.equal(typeof prepareModule.validateDetectorPreparePaths, 'function');
   assert.equal(typeof prepareModule.removeDetectorPrepareTemp, 'function');
-  const dir = mkdtempSync(join(tmpdir(), 'porch-detector-prepare-paths-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'porch-detector-prepare-paths-')));
   const toolRoot = join(dir, 'tool');
   const outside = join(dir, 'outside');
   const runtimeDir = join(toolRoot, 'runtime');
@@ -73,7 +73,7 @@ test('detector prepare path guard only accepts the owned runtime and refuses jun
 
 test('detector runtime environment ignores private pip settings and keeps third-party state under runtime', () => {
   assert.equal(typeof prepareModule.createDetectorRuntimeEnvironment, 'function');
-  const runtimeDir = 'C:/isolated/tools/image-region/runtime.tmp-1-2';
+  const runtimeDir = resolve(tmpdir(), 'isolated', 'tools', 'image-region', 'runtime.tmp-1-2').replaceAll('\\', '/');
   const env = prepareModule.createDetectorRuntimeEnvironment(runtimeDir, {
     PATH: 'keep-path',
     PIP_INDEX_URL: 'https://private.example/simple',

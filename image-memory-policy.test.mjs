@@ -1,7 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -62,12 +63,19 @@ test('policy revocation accepts each finite image root and rejects unknown roots
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('revocation reports a policy write failure instead of silently allowing images', () => {
+test('revocation reports a policy write failure instead of silently allowing images', t => {
   const dir = mkdtempSync(join(tmpdir(), 'porch-image-policy-'));
   try {
     const policyPath = join(dir, 'policy.json');
     initializeImageMemoryPolicy(policyPath);
-    const held = openSync(policyPath, 'r');
+    // An open file blocks replacement on Windows, but not POSIX. Fail only the
+    // final atomic replacement; pending-denial persistence still uses real files.
+    const rename = fs.renameSync;
+    const failure = t.mock.method(fs, 'renameSync', (source, target) => {
+      if (target === policyPath) throw Object.assign(new Error('fixture: replacement denied'), { code: 'EACCES' });
+      return rename(source, target);
+    });
+    syncBuiltinESMExports();
     try {
       assert.throws(() => revokeImageMemory({
         policyPath,
@@ -78,7 +86,7 @@ test('revocation reports a policy write failure instead of silently allowing ima
       const filtered = filterImageMemoryMatchesByPolicy(policyPath, [{ relativePath: 'inbox/other.jpg', sha256: 'b'.repeat(64) }]);
       assert.deepEqual(filtered.matches, []);
       assert.equal(filtered.warning, 'IMAGE_MEMORY_POLICY_PENDING');
-    } finally { closeSync(held); }
+    } finally { failure.mock.restore(); syncBuiltinESMExports(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
