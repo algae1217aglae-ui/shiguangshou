@@ -33,7 +33,7 @@ test('detector prepare refuses a real run without an explicit Python path', () =
 test('detector prepare path guard only accepts the owned runtime and refuses junction cleanup', async () => {
   assert.equal(typeof prepareModule.validateDetectorPreparePaths, 'function');
   assert.equal(typeof prepareModule.removeDetectorPrepareTemp, 'function');
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'porch-detector-prepare-paths-')));
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'porch-detector-prepare-paths-')));
   const toolRoot = join(dir, 'tool');
   const outside = join(dir, 'outside');
   const runtimeDir = join(toolRoot, 'runtime');

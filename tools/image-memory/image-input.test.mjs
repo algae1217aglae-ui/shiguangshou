@@ -19,7 +19,7 @@ test('resolveInboxImage only accepts a real direct child of inbox', async () => 
     const file = join(inbox, 'ok.png');
     await sharp({ create: { width: 8, height: 8, channels: 3, background: 'red' } }).png().toFile(file);
     const resolved = await resolveInboxImage('inbox/ok.png', inbox);
-    assert.equal(resolved.absolutePath, realpathSync(file));
+    assert.equal(resolved.absolutePath, realpathSync.native(file));
     assert.equal(resolved.stat.size > 0, true);
     await assert.rejects(resolveInboxImage('../outside.png', inbox), /inbox/i);
     await assert.rejects(resolveInboxImage('inbox/sub/file.png', inbox), /inbox/i);
