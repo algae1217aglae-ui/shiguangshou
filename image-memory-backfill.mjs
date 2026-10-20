@@ -114,7 +114,8 @@ export function createImageMemoryBackfillRunner({
           collected.issues.push({ code: String(error?.code || 'IMAGE_SOURCE_STATS_FAILED') });
         }
       }
-      const processed = Number(counts.indexed || 0) + Number(counts.unchanged || 0) + Number(counts.failed || 0);
+      // 10/20：建不了索引的圖（太大、壞檔）算處理完了，不然游標永遠停在它前面。
+      const processed = Number(counts.indexed || 0) + Number(counts.unchanged || 0) + Number(counts.unindexable || 0) + Number(counts.failed || 0);
       const cursorAdvanced = processed === sources.length && counts.failed === 0 && counts.pendingEmbedding === 0 && Number(counts.pendingRegions || 0) === 0 && collected.issues.length === 0 && !revokeFailed;
       if (full) await activeClient.reconcile();
       if (cursorAdvanced) {

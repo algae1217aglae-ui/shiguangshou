@@ -70,7 +70,10 @@ test('global index claim makes a late real-worker commit run only after unlink/r
   });
   continueCleanupResolve();
   await cleanup; await late;
-  assert.equal(lateResult.failed, 1);
+  // 10/20 起，檔案已被清掉的那張算「建不了索引」而不是「失敗」；要守的是它沒被寫回去。
+  assert.equal(lateResult.indexed, 0);
+  assert.equal((lateResult.failed || 0) + (lateResult.unindexable || 0), 1);
+  assert.ok(lateResult.codes.includes('IMAGE_NOT_FOUND'));
   assert.equal((await f.worker.handle({ id: 'stats', op: 'stats' })).images, 0);
 });
 

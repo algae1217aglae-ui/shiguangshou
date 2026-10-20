@@ -108,6 +108,11 @@ export function createImageMemoryClient(options = {}) {
   const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 2500;
   // 9/25：整批來源須逐圖驗 hash，不能用聊天的 2.5 秒把正常回填殺掉；仍保留有界終止。
   const sourceSyncTimeoutMs = Number.isFinite(options.sourceSyncTimeoutMs) ? Math.max(1, Math.min(60000, options.sourceSyncTimeoutMs)) : 60000;
+  // 10/14：建索引、回填、對帳也是維護工作，不再共用聊天召回的 2.5 秒（連排隊都算進去）；否則一超時就整個 worker 被砍、
+  // 冷卻 60 秒，下一張查詢圖撞上冷掉的 worker 只剩 hash。
+  const maintenanceTimeoutMs = Number.isFinite(options.maintenanceTimeoutMs) ? Math.max(1, Math.min(60000, options.maintenanceTimeoutMs)) : 60000;
+  // 10/14：worker 一重開，CLIP 要 3～4 秒才暖好；沒暖好時召回會安靜地只比 hash。冷卻一結束就自己先叫醒，不等下一次查詢。
+  const prewarmAfterCooldown = options.prewarmAfterCooldown !== false;
   const cooldownMs = Number.isFinite(options.cooldownMs) ? options.cooldownMs : 60000;
   const terminationWarningMs = Number.isFinite(options.terminationWarningMs) ? Math.max(1, options.terminationWarningMs) : 2000;
   const closeGraceMs = Number.isFinite(options.closeGraceMs) ? Math.max(1, options.closeGraceMs) : 2000;
@@ -121,6 +126,7 @@ export function createImageMemoryClient(options = {}) {
   let circuitUntil = 0;
   let closing = false;
   let generation = 0;
+  let prewarmTimer = null;
   const pending = new Map();
   const terminationTasks = new Set();
   const processGenerations = new WeakMap();
@@ -174,6 +180,18 @@ export function createImageMemoryClient(options = {}) {
     return task;
   }
 
+  function schedulePrewarm() {
+    if (!enabled || !prewarmAfterCooldown || closing) return;
+    clearTimeout(prewarmTimer);
+    prewarmTimer = setTimeout(() => {
+      prewarmTimer = null;
+      if (closing || (child && !child.killed)) return;
+      // stats 是唯讀的；起 worker 時 embedding／detector 子行程會跟著起來暖機。
+      void send('stats', {}, { safe: true });
+    }, Math.max(0, circuitUntil - Date.now()) + 100);
+    prewarmTimer.unref?.();
+  }
+
   const issue = (error, stage) => {
     try { options.onIssue?.(cleanIssue(error, stage)); } catch {}
   };
@@ -201,6 +219,7 @@ export function createImageMemoryClient(options = {}) {
     const existing = retiringGenerations.get(targetGeneration);
     if (existing) return existing;
     circuitUntil = Date.now() + cooldownMs;
+    schedulePrewarm();
     if (child === processRef && processGenerations.get(processRef) === targetGeneration) {
       child = null;
       generation++;
@@ -291,6 +310,7 @@ export function createImageMemoryClient(options = {}) {
       generation++;
       const failure = clientError('IMAGE_WORKER_SPAWN_FAILED', 'image worker could not start', true);
       circuitUntil = Date.now() + cooldownMs;
+      schedulePrewarm();
       issue(failure, 'spawn');
       inputFailuresByGeneration.delete(spawnedGeneration);
       settleGeneration(failure, spawnedGeneration, { circuit: true });
@@ -305,6 +325,7 @@ export function createImageMemoryClient(options = {}) {
       if (closing && ![...pending.values()].some(item => item.generation === spawnedGeneration)) return;
       const error = clientError('IMAGE_WORKER_EXITED', `image worker exited (${code ?? signal ?? 'unknown'})`);
       circuitUntil = Date.now() + cooldownMs;
+      schedulePrewarm();
       issue(error, 'exit');
       settleGeneration(error, spawnedGeneration, { circuit: true });
     });
@@ -369,12 +390,13 @@ export function createImageMemoryClient(options = {}) {
   async function batchWrite(op, sources) {
     const total = emptyCounts(regionsEnabled);
     for (let index = 0; index < sources.length; index += 4) {
-      const result = await send(op, { sources: sources.slice(index, index + 4), deadlineMs: timeoutMs }, { safe: true });
+      const result = await send(op, { sources: sources.slice(index, index + 4), deadlineMs: maintenanceTimeoutMs }, { safe: true, timeout: maintenanceTimeoutMs });
       total.indexed += result.indexed || 0;
       total.unchanged += result.unchanged || 0;
       total.pendingEmbedding += result.pendingEmbedding || 0;
       if (regionsEnabled) total.pendingRegions += result.pendingRegions || 0;
       total.failed += result.failed || 0;
+      if (result.unindexable) total.unindexable = (total.unindexable || 0) + result.unindexable;
       total.codes.push(...(result.codes || []));
     }
     total.codes = [...new Set(total.codes)];
@@ -397,7 +419,7 @@ export function createImageMemoryClient(options = {}) {
     indexBatch(sources = []) { return sources.length ? batchWrite('index', sources) : Promise.resolve(emptyCounts(regionsEnabled)); },
     backfill(sources = []) { return sources.length ? batchWrite('backfill', sources) : Promise.resolve(emptyCounts(regionsEnabled)); },
     revoke(relativePaths = []) { return relativePaths.length ? send('revoke', { relativePaths }) : Promise.resolve({ revision: null, revokedPaths: [], revokedShas: [], removed: 0 }); },
-    reconcile() { return send('reconcile', { deadlineMs: timeoutMs }, { safe: true }); },
+    reconcile() { return send('reconcile', { deadlineMs: maintenanceTimeoutMs }, { safe: true, timeout: maintenanceTimeoutMs }); },
     async syncSourceSnapshot(snapshot) {
       if (!snapshot || snapshot.status !== 'complete') return { skipped: true, code: snapshot?.issue?.code || 'IMAGE_SOURCE_UNREADABLE' };
       const snapshotId = `${snapshot.sourceType}-${process.pid}-${Date.now()}-${++sequence}`;
@@ -417,6 +439,8 @@ export function createImageMemoryClient(options = {}) {
     removeSourceMemberships(membershipIds = []) { return membershipIds.length ? send('source_remove', { membershipIds }) : Promise.resolve({ removed: 0 }); },
     stats() { return send('stats'); },
     async close() {
+      clearTimeout(prewarmTimer);
+      prewarmTimer = null;
       const current = child;
       if (!current) {
         await Promise.allSettled([...terminationTasks]);

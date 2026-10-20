@@ -92,8 +92,11 @@ try {
 - `sourceTs` 是毫秒時間戳，`occurrenceId` 必須由你的應用提供穩定的每次分享識別碼。同 SHA 可以合併圖片，但不合併不同分享的身份與對話。
 - `client.revoke(paths)` 處理撤回；`client.reconcile()` 清除失效路徑。撤回政策缺失、損壞或暫停時停止召回。別直接編輯 SQLite 去繞過政策。
 - `indexBatch`／`backfill` 回 `indexed`、`unchanged`、`failed`、`pendingEmbedding`，開啟區域時也有 `pendingRegions`。pending 需要背景重試，不能當成模型已索引完成。
+- 圖片本身無法建索引時（超過像素或檔案上限、格式不支援、無法解碼、檔案不存在或路徑不合法），該張計入 `unindexable` 並在 `codes` 留下原因，不算 `failed`；整批來源提交也只略過那一張，其餘照常提交（提交結果帶 `unindexable`、`unindexableCodes`）。來源資料夾暫時讀不到、讀取中檔案變動等暫時性錯誤仍算失敗並重試。`unindexable` 只在大於 0 時出現。
 - `recallBatch` 回 `matches`、`warnings` 和通道狀態；預設最多 3 張歷史圖、8 張查詢圖、2500ms 共用時限。模型失敗時仍可走 hash；它不保證每次找到候選。
 - `syncSourceSnapshot` 的整批提交使用獨立背景期限 `sourceSyncTimeoutMs`，預設及最大 60000ms，可設更短的正數毫秒；不會延長聊天召回的 `timeoutMs`。背景提交仍共用 worker，繁忙時查詢可能逾時降級。
+- `indexBatch`／`backfill`／`reconcile` 同樣使用獨立背景期限 `maintenanceTimeoutMs`，預設及最大 60000ms；不再套用聊天召回的 `timeoutMs`，避免排隊時間讓正常寫入逾時、worker 被終止。
+- worker 因逾時或異常結束而進入冷卻（`cooldownMs`）後，冷卻一結束 client 會自動重新啟動 worker 讓模型預熱，下一次查詢不必先撞上冷啟動。預設開啟，設 `prewarmAfterCooldown: false` 可關閉；`close()` 會取消尚未觸發的預熱。
 
 ### 來源與照片附近聊天
 

@@ -42,7 +42,9 @@ function makeClient(overrides = {}) {
   const client = createImageMemoryClient({
     enabled: true, workerPath: fixtureWorker, cwd: dir, inboxDir: join(dir, 'inbox'), dbPath: join(dir, 'db.sqlite'),
     policyPath: join(dir, 'policy.json'), manifestPath: join(dir, 'manifest.json'), cacheDir: join(dir, 'cache'),
-    timeoutMs: 500, maxHits: 3, pHashMaxDistance: 8, visualMinScore: 0.88, onIssue: issue => issues.push(issue), ...overrides,
+    timeoutMs: 500, maxHits: 3, pHashMaxDistance: 8, visualMinScore: 0.88, onIssue: issue => issues.push(issue),
+    // 舊測試量的是「寫入逾時就砍」：維護期限跟著 timeoutMs、不自動暖機，各自有專門的測試。
+    maintenanceTimeoutMs: overrides.timeoutMs ?? 500, prewarmAfterCooldown: false, ...overrides,
   });
   return { dir, issues, client, async cleanup() { await client.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
@@ -66,7 +68,6 @@ test('source snapshot commit has a bounded maintenance budget independent of rec
     await assert.rejects(bounded.client.syncSourceSnapshot({ status: 'complete', sourceType: 'chat', revision: 'r1' }), { code: 'IMAGE_WORKER_TIMEOUT' });
   } finally { await bounded.cleanup(); }
 });
-
 
 test('disabled client returns safe values without spawning', async () => {
   const client = createImageMemoryClient({ enabled: false });
@@ -218,7 +219,8 @@ test('a timed-out mutating request terminates its real worker before the client 
   try {
     const result = await ctx.client.indexBatch([source]);
     assert.equal(result.failed, 1);
-    await new Promise(resolve => setTimeout(resolve, 220));
+    // 假 worker 1 秒後才寫：Windows 的 taskkill 本身就要一兩百毫秒，150 毫秒在 Windows 上可能來不及砍（10/14）。
+    await new Promise(resolve => setTimeout(resolve, 1200));
     assert.equal(existsSync(marker), false);
   } finally { await ctx.cleanup(); }
 });
@@ -433,4 +435,36 @@ test('collectImageMemoryEntries merges archive and state, preserves occurrences,
     assert.ok(result.issues.some(issue => issue.code === 'HISTORY_BAD_JSON'));
     assert.ok(result.issues.some(issue => issue.code === 'IMAGE_NOT_FOUND'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('maintenance writes get their own budget instead of the 2.5-second chat recall budget', async () => {
+  // 10/14：以前回填跟建索引用聊天那 2.5 秒，連排隊都算，一超時整個 worker 被砍、冷卻一分鐘。
+  const ctx = makeClient({ timeoutMs: 40, maintenanceTimeoutMs: 5000 });
+  const source = { occurrenceId: 'slow-index', queryId: 'slow-index', relativePath: 'inbox/late-commit.jpg', sourceTs: 1, sourceText: '' };
+  try {
+    const result = await ctx.client.indexBatch([source]);
+    assert.deepEqual({ indexed: result.indexed, failed: result.failed }, { indexed: 1, failed: 0 });
+    assert.equal(ctx.issues.some(issue => issue.code === 'IMAGE_WORKER_TIMEOUT'), false);
+    assert.equal(ctx.client.running, true);
+  } finally { await ctx.cleanup(); }
+});
+
+test('after a worker dies the client wakes a fresh one once the cooldown ends, without waiting for the next query', async () => {
+  const ctx = makeClient({ cooldownMs: 60, prewarmAfterCooldown: true });
+  try {
+    await ctx.client.backfill([{ occurrenceId: 'crash', queryId: 'crash', relativePath: 'inbox/crash.jpg', sourceTs: 1, sourceText: '' }]);
+    assert.equal(ctx.client.running, false);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assert.equal(ctx.client.running, true);
+  } finally { await ctx.cleanup(); }
+});
+
+test('closing the client cancels a pending warm-up so no worker is left behind', async () => {
+  const ctx = makeClient({ cooldownMs: 150, prewarmAfterCooldown: true });
+  try {
+    await ctx.client.backfill([{ occurrenceId: 'crash', queryId: 'crash', relativePath: 'inbox/crash.jpg', sourceTs: 1, sourceText: '' }]);
+    await ctx.client.close();
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assert.equal(ctx.client.running, false);
+  } finally { await ctx.cleanup(); }
 });

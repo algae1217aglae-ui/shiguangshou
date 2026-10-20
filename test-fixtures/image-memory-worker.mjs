@@ -67,7 +67,7 @@ rl.on('line', line => {
     return;
   }
   if (path.includes('late-commit')) {
-    setTimeout(() => { appendFileSync(`${workerArgs.db}.late-commit`, 'committed'); reply(); }, 150);
+    setTimeout(() => { appendFileSync(`${workerArgs.db}.late-commit`, 'committed'); reply(); }, 1000);
     return;
   }
   if (path.includes('late-exit')) {

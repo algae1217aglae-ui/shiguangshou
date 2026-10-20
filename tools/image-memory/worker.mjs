@@ -18,6 +18,12 @@ import { fixedRegions, selectOnlineRegions, selectYoloRegions } from './regions.
 import { createDetectorProcessClient } from './detector-process.mjs';
 import { REGION_V1, verifyDetectorManifest } from '../image-region/detector-spec.mjs';
 
+// 圖本身就建不了索引的錯誤：換幾次都一樣，略過那一張就好。暫時性的（讀到一半在變、資料夾不在）不在這裡。
+export const UNINDEXABLE_IMAGE_CODES = new Set([
+  'IMAGE_PIXEL_LIMIT', 'IMAGE_FILE_TOO_LARGE', 'IMAGE_FORMAT_UNSUPPORTED', 'IMAGE_DECODE_FAILED',
+  'IMAGE_NOT_FOUND', 'IMAGE_PATH_INVALID', 'IMAGE_LINK_REJECTED',
+]);
+
 function workerError(message, code, retryable = false, cause) {
   return Object.assign(new Error(message, cause ? { cause } : undefined), { code, retryable });
 }
@@ -299,7 +305,7 @@ export function createImageMemoryWorker({
   async function indexSources(sources) {
     const status = imageMemoryPolicyStatus(policyPath);
     if (status.paused) return { indexed: 0, unchanged: 0, pendingEmbedding: 0, failed: sources.length, codes: [status.code] };
-    let indexed = 0, unchanged = 0, pendingEmbedding = 0, pendingRegions = 0, failed = 0;
+    let indexed = 0, unchanged = 0, pendingEmbedding = 0, pendingRegions = 0, unindexable = 0, failed = 0;
     const codes = [];
     for (const source of sources) {
       try {
@@ -367,14 +373,16 @@ export function createImageMemoryWorker({
           }
         }
       } catch (error) {
-        failed++;
+        // 10/20：圖本身不能建索引（太大、壞檔、不見了）重試也沒用，另外算，不讓回填因為它永遠停在原地。
+        if (UNINDEXABLE_IMAGE_CODES.has(error?.code)) unindexable++;
+        else failed++;
         codes.push(error.code || 'IMAGE_INDEX_FAILED');
       }
     }
     return {
       indexed, unchanged, pendingEmbedding,
       ...(regionConfig ? { pendingRegions } : {}),
-      failed, codes: [...new Set(codes)],
+      ...(unindexable ? { unindexable } : {}), failed, codes: [...new Set(codes)],
     };
   }
 
@@ -777,10 +785,19 @@ export function createImageMemoryWorker({
     try {
       const verified = [];
       const featureWork = new Map();
+      const unindexableCodes = [];
       for (const row of snapshot.memberships) {
         if (Date.now() - snapshot.createdAt > 60000) throw workerError('source snapshot expired', 'IMAGE_SOURCE_SNAPSHOT_EXPIRED');
         if (imageMemoryPolicyStatus(policyPath).paused) throw workerError('image memory policy has pending denials', 'IMAGE_MEMORY_POLICY_PENDING');
-        const hash = await hashFeatures(row.relativePath);
+        let hash;
+        try { hash = await hashFeatures(row.relativePath); }
+        catch (error) {
+          // 10/20：一張超過像素上限的圖曾讓整批相簿同步失敗，之後新收的照片全進不來。
+          // 圖本身不能建索引的就略過那一張，快照照樣提交；暫時性的錯誤（讀到一半在變、資料夾不在）才整批重來。
+          if (!UNINDEXABLE_IMAGE_CODES.has(error?.code)) throw error;
+          unindexableCodes.push(error.code);
+          continue;
+        }
         if (denied(readImageMemoryPolicy(policyPath), row.relativePath, hash.sha256)) continue;
         let image = db.prepare('SELECT id FROM images WHERE sha256=? ORDER BY id LIMIT 1').get(hash.sha256);
         let imageId;
@@ -812,7 +829,10 @@ export function createImageMemoryWorker({
           if (missing && regionsAvailable()) scheduleRegions(source, hash, imageId);
         }
       }
-      return { ...result, memberships: verified.length, messages: snapshot.messages.length, pendingEmbedding, ...(regionConfig ? { pendingRegions } : {}) };
+      return {
+        ...result, memberships: verified.length, messages: snapshot.messages.length, pendingEmbedding, ...(regionConfig ? { pendingRegions } : {}),
+        ...(unindexableCodes.length ? { unindexable: unindexableCodes.length, unindexableCodes: [...new Set(unindexableCodes)] } : {}),
+      };
     } finally { sourceSnapshots.delete(request.snapshotId); }
   }
 

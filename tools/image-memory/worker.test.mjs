@@ -283,6 +283,27 @@ test('worker source snapshots commit atomically with CAS and remove only missing
   });
 });
 
+test('one image that can never be indexed is skipped instead of failing the whole album snapshot or backfill', async () => {
+  // 10/20：一張超過像素上限的圖曾讓整批同步失敗、之後收的照片全進不來。
+  await fixture(async ({ inboxDir, worker }) => {
+    await makeImage(join(inboxDir, 'a.png'));
+    writeFileSync(join(inboxDir, 'broken.jpg'), 'not really a jpeg');
+    await worker.handle({ id: 'begin', op: 'source_sync_begin', snapshotId: 'album-1', sourceType: 'album', revision: 'r1', baseGeneration: 0, baseRevision: null, mode: 'complete' });
+    await worker.handle({ id: 'batch', op: 'source_sync_batch', snapshotId: 'album-1', memberships: [
+      { membershipId: 'album:x:broken', sourceType: 'album', sourceId: 'x', relativePath: 'inbox/broken.jpg', sourceTs: 9, sourceText: '', sourceRevision: 'r1', metadata: {} },
+      { membershipId: 'album:x:gone', sourceType: 'album', sourceId: 'x', relativePath: 'inbox/gone.png', sourceTs: 9, sourceText: '', sourceRevision: 'r1', metadata: {} },
+      { membershipId: 'album:a:i1', sourceType: 'album', sourceId: 'a', relativePath: 'inbox/a.png', sourceTs: 10, sourceText: 'one', sourceRevision: 'r1', metadata: {} },
+    ], messages: [] });
+    const committed = await worker.handle({ id: 'commit', op: 'source_sync_commit', snapshotId: 'album-1' });
+    assert.equal(committed.generation, 1);
+    assert.equal(committed.memberships, 1);
+    assert.equal(committed.unindexable, 2);
+
+    const indexed = await worker.handle({ id: 'index', op: 'index', sources: [source('broken.jpg', 'chat-broken', 11), source('a.png', 'chat-a', 12)], deadlineMs: 5000 });
+    assert.deepEqual({ indexed: indexed.indexed, unindexable: indexed.unindexable, failed: indexed.failed }, { indexed: 1, unindexable: 1, failed: 0 });
+  });
+});
+
 test('evaluate exposes independent raw channel scores before threshold-specific fusion', async () => {
   await fixture(async ({ inboxDir, worker }) => {
     await makeImage(join(inboxDir, 'old.png'));

@@ -116,6 +116,28 @@ test('pending embeddings and source read issues keep the cursor retryable', asyn
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('an image that can never be indexed counts as handled so the cursor still advances', async () => {
+  // 10/20：一張太大的圖曾讓回填每輪重來、每輪報一次錯。
+  const dir = mkdtempSync(join(tmpdir(), 'porch-image-backfill-unindexable-'));
+  const historyPath = join(dir, 'history.jsonl');
+  const cursorPath = join(dir, 'data', 'cursor.json');
+  writeFileSync(historyPath, '{"one":1}\n');
+  const runner = createImageMemoryBackfillRunner({
+    historyPath, statePath: '', inboxDir: '', policyPath: '', cursorPath,
+    collect: async options => ({ sources: [{ occurrenceId: 'ok' }, { occurrenceId: 'huge' }], denied: [], issues: [], cursor: { historyBytes: options.historyStart + 10, latestSourceTs: 100 } }),
+    client: {
+      async backfill() { return { indexed: 1, unchanged: 0, pendingEmbedding: 0, unindexable: 1, failed: 0, codes: ['IMAGE_PIXEL_LIMIT'] }; },
+      async reconcile() { return { removed: 0 }; },
+    },
+    now: () => 1000,
+  });
+  try {
+    const result = await runner.run();
+    assert.equal(result.cursorAdvanced, true);
+    assert.equal(result.retryAfterMs, null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('pending region channels keep the cursor retryable until fixed and detector sets are durable', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'porch-image-backfill-regions-'));
   const historyPath = join(dir, 'history.jsonl');
